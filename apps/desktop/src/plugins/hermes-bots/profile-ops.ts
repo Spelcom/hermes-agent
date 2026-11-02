@@ -162,6 +162,27 @@ interface ProfilesGetAssetResult {
   found?: boolean
 }
 
+/** Shared native cache rules for a roster read or one exact owner's explicit chat open. */
+export function rememberServerAvatar(bot: RosterRow, res: ProfilesGetAssetResult): void {
+  if (!res?.found || !res.data) {
+    return
+  }
+
+  const key = botMetaKey(bot)
+  const current = $botMeta.get()
+  const mine = current[key] || {}
+
+  // Face rasters are transport thumbnails; caching them would stop the native face animating.
+  if (isBackfilledFacePng(res.data) && mine.imageKind !== 'photo' && !mine.pet) {
+    avatarFaceOnly.add(key)
+
+    return
+  }
+
+  $botMeta.set({ ...current, [key]: { ...mine, image: res.data } })
+  persistBotMetaSnapshot($botMeta.get(), Boolean(bot.sourceScoped))
+}
+
 /** Fetch server-side avatars for roster rows flagged has_avatar when the
  *  local cache doesn't already have an image for them. Fire-and-forget. */
 export function pullServerAvatars(roster: RosterRow[]) {
@@ -186,31 +207,7 @@ export function pullServerAvatars(roster: RosterRow[]) {
     })
 
     assetRequest
-      .then(res => {
-        if (res?.found && res.data) {
-          const current = $botMeta.get()
-          const mine = current[key] || {}
-
-          // A 160px raster of the vector face is only for inter-agent
-          // notices. Do not park it on the roster or the live face dies —
-          // and remember the answer, or the empty image slot re-fetches the
-          // same raster on every roster tick.
-          if (isBackfilledFacePng(res.data) && mine.imageKind !== 'photo' && !mine.pet) {
-            avatarFaceOnly.add(key)
-
-            return
-          }
-
-          $botMeta.set({
-            ...current,
-            [key]: {
-              ...mine,
-              image: res.data
-            }
-          })
-          persistBotMetaSnapshot($botMeta.get(), Boolean(bot.sourceScoped))
-        }
-      })
+      .then(res => rememberServerAvatar(bot, res))
       .catch(() => undefined)
       .finally(() => avatarFetchInflight.delete(key))
   }

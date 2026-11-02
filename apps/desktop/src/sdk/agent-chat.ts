@@ -17,7 +17,7 @@ export async function openAgentChat(route: PluginProfileRoute): Promise<boolean>
   const captured = Object.freeze({ ...route })
   const { openRosterBot } = await import('@/plugins/hermes-bots/roster-actions')
 
-  return openRosterBot({
+  const bot = {
     name: captured.profile,
     connectionId: captured.connectionId,
     connectionKind: captured.mode,
@@ -25,5 +25,14 @@ export async function openAgentChat(route: PluginProfileRoute): Promise<boolean>
     sourceScoped: true,
     remoteSource: captured.mode === 'remote',
     route: captured
-  })
+  }
+
+  const opened = await openRosterBot(bot)
+
+  if (opened) {
+    const { hydrateRosterChatIdentity } = await import('@/plugins/hermes-bots/roster-chat-identity')
+    await hydrateRosterChatIdentity(bot)
+  }
+
+  return opened
 }

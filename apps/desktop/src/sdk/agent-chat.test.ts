@@ -2,14 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PluginProfileRoute } from './profile-request'
 
-const { openRosterBot } = vi.hoisted(() => ({ openRosterBot: vi.fn() }))
+const { hydrateRosterChatIdentity, openRosterBot } = vi.hoisted(() => ({
+  hydrateRosterChatIdentity: vi.fn(),
+  openRosterBot: vi.fn()
+}))
 
 vi.mock('@/plugins/hermes-bots/roster-actions', () => ({ openRosterBot }))
+vi.mock('@/plugins/hermes-bots/roster-chat-identity', () => ({ hydrateRosterChatIdentity }))
 
 import { openAgentChat } from './agent-chat'
 
 beforeEach(() => {
   openRosterBot.mockReset().mockResolvedValue(true)
+  hydrateRosterChatIdentity.mockReset().mockResolvedValue(undefined)
 })
 
 describe('the public agent chat action uses the native canonical open', () => {
@@ -40,6 +45,7 @@ describe('the public agent chat action uses the native canonical open', () => {
     const [bot] = openRosterBot.mock.calls[0]!
     expect(Object.isFrozen(bot.route)).toBe(true)
     expect(bot.canonical_session).toBeUndefined()
+    expect(hydrateRosterChatIdentity).toHaveBeenCalledWith(bot)
   })
 
   it('preserves native failure and refuses an incomplete owner instead of using the active profile', async () => {
@@ -47,6 +53,7 @@ describe('the public agent chat action uses the native canonical open', () => {
     await expect(
       openAgentChat({ connectionId: 'local', mode: 'local', profile: 'editor', targetProfile: 'editor' })
     ).resolves.toBe(false)
+    expect(hydrateRosterChatIdentity).not.toHaveBeenCalled()
     openRosterBot.mockClear()
     await expect(
       openAgentChat({ connectionId: '', mode: 'local', profile: 'editor', targetProfile: 'editor' })
