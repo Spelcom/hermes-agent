@@ -1,0 +1,32 @@
+Personal CL / Kontora desktop
+
+Base: Hermes Agent v0.22.5. Original MIT license and attribution remain in LICENSE.
+Fork: https://github.com/Spelcom/hermes-agent
+Personal branch: kontora/stable-v0.22.5
+Upstream: https://github.com/NousResearch/hermes-agent
+
+Changes: personal CL artwork; quiet empty-chat screen; no persistent portal legal
+banner; exact native employee-chat action; profile-scoped durable transfer activity
+for the separate Kontora desktop plugin. Runtime profiles and credentials are not
+part of this repository.
+
+Upstream updates are reviewed merges, independent of the personal branch:
+  git fetch upstream --tags
+  git switch kontora/stable-v0.22.5
+  git switch -c integrate/vX.Y.Z
+  git merge --no-ff vX.Y.Z
+Resolve conflicts, run checks, build and verify before merging this integration
+branch into the personal branch. Keep the upstream release tag as a separate
+reference. The upstream release installer should not replace a personal build.
+
+Local desktop build (Node and source dependencies prepared by Hermes installer):
+  cd apps/desktop
+  npm run build
+  GITHUB_REPOSITORY=Spelcom/hermes-agent npm run builder -- --mac --arm64 --dir --publish never
+The build is a source desktop and uses this checkout's canonical gateway.
+The resulting .app is under apps/desktop/release/mac-arm64.
+
+The independent Kontora plugin remains outside the upstream tree; install its
+plugin.js under the chosen HERMES_HOME/desktop-plugins/kontora directory. Its
+metadata refers to real Hermes profiles, never credential copies. Worker roles,
+local model and local speech provider are configured in per-profile runtime data.
