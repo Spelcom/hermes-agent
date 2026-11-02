@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { type ResolvedOwner, resolveOwnerNow } from '@/hermes'
 import { useI18n } from '@/i18n'
+import { createDictationTrace } from '@/lib/dictation-trace'
 import { syncSttLease, VOICE_INPUT_LEASE } from '@/lib/stt-lease'
 import { fetchVoiceClientConfigFor } from '@/lib/voice-client-direct'
 import { type DictationStreamSession, openDictationStream } from '@/lib/voice-stream'
@@ -31,6 +32,7 @@ interface Dictation {
   warmup: Promise<void>
   /** Live STT session (stt.streaming): resolves to null when the host has no live wire. */
   live?: () => Promise<DictationStreamSession | null>
+  trace: ReturnType<typeof createDictationTrace>
 }
 
 export function useVoiceRecorder({
@@ -59,6 +61,8 @@ export function useVoiceRecorder({
   // unmount clears it, so a warm-up or transcript settling afterwards cannot
   // transcribe, insert text or move focus.
   const dictationRef = useRef<Dictation | null>(null)
+  const openingRef = useRef<object | null>(null)
+  const stoppingRef = useRef(false)
 
   const clearTimers = () => {
     if (intervalRef.current) {
@@ -75,20 +79,24 @@ export function useVoiceRecorder({
   useEffect(
     () => () => {
       clearTimers()
+      openingRef.current = null
       const dictation = dictationRef.current
       dictationRef.current = null
 
       if (dictation) {
+        dictation.trace('cancel')
         void syncSttLease(VOICE_INPUT_LEASE, false, dictation.owner)
       }
     },
     []
   )
 
-  const stop = async () => {
+  const stopRecording = async () => {
     clearTimers()
     const dictation = dictationRef.current
+    dictation?.trace('stop')
     const result = await handle.stop()
+    dictation?.trace('clip-ready')
     const live = () => dictation !== null && dictationRef.current === dictation
 
     if (!dictation || !live()) {
@@ -110,13 +118,26 @@ export function useVoiceRecorder({
       // transcription request's timeout (#105955). syncSttLease never rejects,
       // and its budget is the lease request's own 180 s timeout.
       await dictation.warmup
+      dictation.trace('warmup-ready')
 
       if (!live()) {
         return
       }
 
-      const transcript =
-        (await liveTranscript(dictation)) ?? (await onTranscribeAudio(result.audio, dictation.owner)).trim()
+      const liveText = await liveTranscript(dictation)
+      dictation.trace('live-ready')
+
+      if (!live()) {
+        return
+      }
+
+      let transcript = liveText
+
+      if (transcript === null) {
+        dictation.trace('transcribe-start')
+        transcript = (await onTranscribeAudio(result.audio, dictation.owner)).trim()
+        dictation.trace('transcribe-ready')
+      }
 
       if (!live()) {
         return
@@ -126,8 +147,11 @@ export function useVoiceRecorder({
         notify({ kind: 'warning', title: voiceCopy.noSpeechDetected, message: voiceCopy.tryRecordingAgain })
       } else {
         onTranscript(transcript)
+        dictation.trace('inserted')
       }
     } catch (error) {
+      dictation.trace('error')
+
       if (live()) {
         notifyError(error, voiceCopy.transcriptionFailed)
       }
@@ -137,6 +161,20 @@ export function useVoiceRecorder({
         setVoiceStatus('idle')
         focusInput()
       }
+    }
+  }
+
+  const stop = async () => {
+    if (stoppingRef.current) {
+      return
+    }
+
+    stoppingRef.current = true
+
+    try {
+      await stopRecording()
+    } finally {
+      stoppingRef.current = false
     }
   }
 
@@ -160,6 +198,7 @@ export function useVoiceRecorder({
   // engine held. Released to the owner that acquired it. The backend keeps the
   // shared model resident regardless.
   const finish = (dictation: Dictation) => {
+    dictation.trace('finish')
     dictationRef.current = null
     setPartial('')
     void dictation.live?.().then(session => session?.cancel())
@@ -167,26 +206,50 @@ export function useVoiceRecorder({
   }
 
   const start = async () => {
+    if (openingRef.current) {
+      return
+    }
+
     if (!onTranscribeAudio) {
       notify({ kind: 'warning', title: voiceCopy.unavailable, message: voiceCopy.transcriptionUnavailable })
 
       return
     }
 
+    const opening = {}
+    openingRef.current = opening
+    const trace = createDictationTrace()
+    trace('start')
+    setVoiceStatus('starting')
+
     try {
       const owner = resolveOwnerNow(ownerRef.current)
-      const stream = liveStream(owner)
+      const stream = liveStream(owner, trace)
       await handle.start({
         onError: error => notifyError(error, voiceCopy.recordingFailed),
         onPcm: stream.push,
         onPcmRate: stream.open
       })
+
+      if (openingRef.current !== opening) {
+        trace('cancel')
+        handle.cancel()
+
+        return
+      }
+
+      trace('mic-open')
       // The mic is open, so a transcript is coming: warm the backend's STT
       // engine now so a cold local model loads while the user is still
       // speaking instead of inside the transcription timeout (#105955).
       // Fire-and-forget for the MIC UX — but keep the promise: stop() awaits
       // it as the readiness barrier before transcription (see above).
-      dictationRef.current = { live: stream.session, owner, warmup: syncSttLease(VOICE_INPUT_LEASE, true, owner) }
+      dictationRef.current = {
+        live: stream.session,
+        owner,
+        trace,
+        warmup: syncSttLease(VOICE_INPUT_LEASE, true, owner)
+      }
       startedAtRef.current = Date.now()
       setElapsedSeconds(0)
       setVoiceStatus('recording')
@@ -195,15 +258,23 @@ export function useVoiceRecorder({
       const cap = Math.max(1, Math.min(Math.trunc(maxRecordingSeconds), 600))
       timeoutRef.current = window.setTimeout(() => void stop(), cap * 1000)
     } catch (error) {
-      setVoiceStatus('idle')
-      notifyError(error, voiceCopy.recordingFailed)
+      trace('error')
+
+      if (openingRef.current === opening) {
+        setVoiceStatus('idle')
+        notifyError(error, voiceCopy.recordingFailed)
+      }
+    } finally {
+      if (openingRef.current === opening) {
+        openingRef.current = null
+      }
     }
   }
 
   // Live dictation plumbing for one take: chunks captured before the socket opens are buffered
   // (bounded) and flushed, so the first words reach the provider too. `session()` is null when the
   // host has no live wire, or when the meter never reported a rate (no PCM tap this take).
-  const liveStream = (owner: ResolvedOwner) => {
+  const liveStream = (owner: ResolvedOwner, trace: ReturnType<typeof createDictationTrace>) => {
     let session: DictationStreamSession | null = null
     let settled = false
     let buffered: ArrayBuffer[] = []
@@ -211,7 +282,9 @@ export function useVoiceRecorder({
 
     const open = (sampleRate: number) => {
       opening = (async () => {
+        trace('config-start')
         const config = await fetchVoiceClientConfigFor(owner).catch(() => null)
+        trace('config-ready')
         const opened = config?.stt.streaming ? await openDictationStream(owner, sampleRate, setPartial) : null
 
         for (const chunk of opened ? buffered : []) {

@@ -1,3 +1,4 @@
+import { createDictationTrace } from '@/lib/dictation-trace'
 import type {
   ActionResponse,
   ActionStatusResponse,
@@ -198,9 +199,24 @@ export function transcribeAudio(
     timeoutMs: audioTranscribeRequestTimeoutMs(dataUrl)
   }
 
-  return owner
+  const trace = createDictationTrace()
+  trace('relay-start')
+
+  const result = owner
     ? hermesApiAs<AudioTranscriptionResponse>(owner, request)
     : hermesApi<AudioTranscriptionResponse>({ ...profileScoped(), ...request })
+
+  return result.then(
+    response => {
+      trace('relay-ready')
+
+      return response
+    },
+    error => {
+      trace('error')
+      throw error
+    }
+  )
 }
 
 // `owner` = the speaking session's (connection, profile) — a Bot's own TTS

@@ -99,8 +99,13 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
   const silenceTriggeredRef = useRef(false)
   const silenceStartedAtRef = useRef<number | null>(null)
   const stopResolverRef = useRef<((recording: MicRecording | null) => void) | null>(null)
+  const openingRef = useRef<Promise<void> | null>(null)
+  const generationRef = useRef(0)
 
   const cleanup = () => {
+    generationRef.current += 1
+    openingRef.current = null
+
     if (animationRef.current) {
       window.cancelAnimationFrame(animationRef.current)
       animationRef.current = null
@@ -262,16 +267,16 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
     tap.connect(audioContext.destination)
   }
 
-  const start: MicRecorderHandle['start'] = async (options = {}) => {
-    if (recorderRef.current) {
-      return
-    }
-
+  const open = async (options: MicRecorderOptions, generation: number) => {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       throw new Error(copy.microphoneUnsupported)
     }
 
     const permitted = await window.hermesDesktop?.requestMicrophoneAccess?.()
+
+    if (generation !== generationRef.current) {
+      return
+    }
 
     if (permitted === false) {
       throw new Error(copy.microphoneAccessDenied)
@@ -282,6 +287,10 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
     // AudioContext device error (#75329).
     await meterContextsClosed()
 
+    if (generation !== generationRef.current) {
+      return
+    }
+
     let stream: MediaStream
 
     try {
@@ -290,6 +299,14 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
       })
     } catch (error) {
       throw micError(error, copy)
+    }
+
+    // getUserMedia cannot be aborted: a cancelled/unmounted take must close
+    // the late stream before it can create a recorder or touch shared refs.
+    if (generation !== generationRef.current) {
+      stream.getTracks().forEach(track => track.stop())
+
+      return
     }
 
     const mimeType =
@@ -360,6 +377,26 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
     recorder.start()
     setRecording(true)
     startMeter(stream, options)
+  }
+
+  const start: MicRecorderHandle['start'] = (options = {}) => {
+    if (recorderRef.current) {
+      return Promise.resolve()
+    }
+
+    if (openingRef.current) {
+      return openingRef.current
+    }
+
+    const pending = open(options, generationRef.current).finally(() => {
+      if (openingRef.current === pending) {
+        openingRef.current = null
+      }
+    })
+
+    openingRef.current = pending
+
+    return pending
   }
 
   const stop: MicRecorderHandle['stop'] = () =>

@@ -103,6 +103,67 @@ afterEach(() => {
 })
 
 describe('useMicRecorder level meter', () => {
+  it('opens only one stream when start is repeated while permission is pending', async () => {
+    const permission = deferred()
+    const requestMicrophoneAccess = vi.fn(() => permission.promise.then(() => true))
+    vi.stubGlobal('hermesDesktop', { requestMicrophoneAccess })
+    const { result } = renderHook(() => useMicRecorder(copy))
+    let first!: Promise<void>
+    let second!: Promise<void>
+    act(() => {
+      first = result.current.handle.start()
+      second = result.current.handle.start()
+    })
+    await act(async () => {
+      permission.resolve()
+      await Promise.all([first, second])
+    })
+    expect(requestMicrophoneAccess).toHaveBeenCalledOnce()
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledOnce()
+    await act(async () => {
+      await result.current.handle.stop()
+    })
+  })
+
+  it('does not open a microphone when permission settles after unmount', async () => {
+    const permission = deferred()
+    vi.stubGlobal('hermesDesktop', { requestMicrophoneAccess: () => permission.promise.then(() => true) })
+    const hook = renderHook(() => useMicRecorder(copy))
+    let opening!: Promise<void>
+    act(() => {
+      opening = hook.result.current.handle.start()
+    })
+    hook.unmount()
+    await act(async () => {
+      permission.resolve()
+      await opening
+    })
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled()
+  })
+
+  it('stops a stream delivered after the pending recorder was cancelled', async () => {
+    const device = deferred()
+    const stopTrack = vi.fn()
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockImplementation(async () => {
+      await device.promise
+
+      return { getTracks: () => [{ stop: stopTrack }] } as unknown as MediaStream
+    })
+    const hook = renderHook(() => useMicRecorder(copy))
+    let opening!: Promise<void>
+    act(() => {
+      opening = hook.result.current.handle.start()
+    })
+    await flush()
+    hook.unmount()
+    await act(async () => {
+      device.resolve()
+      await opening
+    })
+    expect(stopTrack).toHaveBeenCalledOnce()
+    expect(FakeAudioContext.instances).toHaveLength(0)
+  })
+
   it('waits for the previous take’s meter to finish closing before opening the next', async () => {
     const { result } = renderHook(() => useMicRecorder(copy))
 

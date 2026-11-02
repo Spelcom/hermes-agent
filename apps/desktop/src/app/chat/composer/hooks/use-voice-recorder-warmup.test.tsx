@@ -92,6 +92,7 @@ describe('useVoiceRecorder STT readiness barrier', () => {
     ambient.connectionId = 'gateway-a'
     ambient.profile = 'worker_alpha'
     micHandle.start.mockClear()
+    micHandle.cancel.mockClear()
     micHandle.stop.mockReset()
     micHandle.stop.mockImplementation(async () => {
       recording = false
@@ -182,6 +183,78 @@ describe('useVoiceRecorder STT readiness barrier', () => {
     })
 
     await waitFor(() => expect(transcribe).toHaveBeenCalledTimes(1))
+  })
+
+  it('reports startup immediately and ignores repeated dictate requests until the mic opens', async () => {
+    let open!: () => void
+    micHandle.start.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          open = () => {
+            recording = true
+            resolve()
+          }
+        })
+    )
+    const hook = renderRecorder(vi.fn(async () => 'hello'))
+    act(() => {
+      hook.result.current.dictate()
+      hook.result.current.dictate()
+    })
+    expect(micHandle.start).toHaveBeenCalledOnce()
+    expect(hook.result.current.voiceStatus).toBe('starting')
+    await act(async () => {
+      open()
+    })
+    expect(hook.result.current.voiceStatus).toBe('recording')
+  })
+
+  it('cancels a pending microphone start after unmount without acquiring a lease', async () => {
+    let open!: () => void
+    micHandle.start.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          open = resolve
+        })
+    )
+    const hook = renderRecorder(vi.fn(async () => 'hello'))
+    act(() => {
+      hook.result.current.dictate()
+    })
+    hook.unmount()
+    await act(async () => {
+      open()
+    })
+    expect(micHandle.cancel).toHaveBeenCalledOnce()
+    expect(syncSttLeaseSpy).not.toHaveBeenCalled()
+  })
+
+  it('stops one recorder only once while the recorded clip is still settling', async () => {
+    let stop!: () => void
+    micHandle.stop.mockImplementationOnce(
+      () =>
+        new Promise<MicRecording>(resolve => {
+          stop = () => {
+            recording = false
+            resolve({ audio: new Blob(), durationMs: 500, heardSpeech: true })
+          }
+        })
+    )
+    const transcribe = vi.fn(async () => 'hello')
+    const hook = renderRecorder(transcribe)
+    await act(async () => {
+      hook.result.current.dictate()
+    })
+    act(() => {
+      hook.result.current.dictate()
+      hook.result.current.dictate()
+    })
+    expect(micHandle.stop).toHaveBeenCalledOnce()
+    await act(async () => {
+      stop()
+    })
+    expect(transcribe).toHaveBeenCalledOnce()
+    expect(hook.result.current.voiceStatus).toBe('idle')
   })
 
   // #128668 review: one owner per recording — resolved at mic-open, used for

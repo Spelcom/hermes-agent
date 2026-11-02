@@ -171,7 +171,12 @@ export function VoiceActivity({ state }: { state: VoiceActivityState }) {
   }
 
   const recording = state.status === 'recording'
-  const title = recording ? t.composer.dictating : t.composer.transcribing
+
+  const title = recording
+    ? t.composer.dictating
+    : state.status === 'starting'
+      ? t.composer.preparingAudio
+      : t.composer.transcribing
 
   return (
     <div

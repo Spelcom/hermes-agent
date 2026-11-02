@@ -68,7 +68,7 @@ export interface ChatBarProps {
   onTranscribeAudio?: (audio: Blob, owner?: ResolvedOwner) => Promise<string>
 }
 
-export type VoiceStatus = 'idle' | 'recording' | 'transcribing'
+export type VoiceStatus = 'idle' | 'starting' | 'recording' | 'transcribing'
 
 export interface VoiceActivityState {
   elapsedSeconds: number
