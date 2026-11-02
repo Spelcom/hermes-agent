@@ -22,6 +22,7 @@ import { rehashPayloadDigests } from './payload-digests.mjs'
 import { resolveSigningIdentity, signNestedChromium } from './sign-nested-chromium.mjs'
 import { signWheelZipMembers } from './sign-wheel-zips.mjs'
 import { sanitizeTree } from './sanitize-pe-signatures.mjs'
+import { signKontoraLocalMacApp } from './kontora-local-sign.mjs'
 
 /**
  * Put our full-resolution `assets/icon.icns` back as the bundle's legacy icon.
@@ -100,6 +101,7 @@ export default async function afterPack(context) {
       // Unsigned builds end here and still need final-byte facts.
       rehashPayloadDigests(payload)
     }
+    await signKontoraLocalMacApp(context)
     return
   }
   if (platform === 'linux') {

@@ -22,9 +22,15 @@ reference. The upstream release installer should not replace a personal build.
 Local desktop build (Node and source dependencies prepared by Hermes installer):
   cd apps/desktop
   npm run build
-  GITHUB_REPOSITORY=Spelcom/hermes-agent npm run builder -- --mac --arm64 --dir --publish never
+  KONTORA_ADHOC_SIGN=1 CSC_IDENTITY_AUTO_DISCOVERY=false GITHUB_REPOSITORY=Spelcom/hermes-agent npm run builder -- --mac --arm64 --dir --publish never
 The build is a source desktop and uses this checkout's canonical gateway.
 The resulting .app is under apps/desktop/release/mac-arm64.
+KONTORA_ADHOC_SIGN opts this personal build into a complete ad-hoc bundle
+signature with the repository's hardened runtime and microphone entitlements.
+It keeps the native icon and avoids selecting a personal signing certificate.
+Verify after packaging:
+  codesign --verify --deep --strict release/mac-arm64/Hermes.app
+The first microphone use still requires the normal macOS permission prompt.
 
 The independent Kontora plugin remains outside the upstream tree; install its
 plugin.js under the chosen HERMES_HOME/desktop-plugins/kontora directory. Its

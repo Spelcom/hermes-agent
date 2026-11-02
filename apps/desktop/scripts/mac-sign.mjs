@@ -20,7 +20,7 @@ export function createMacSigner(policy, { env = process.env, makeCache = createM
     // entitlements, hardened runtime, secure timestamp); osx-sign then skips them
     // and still seals every bundle and the app.
     const identity = opts.identity
-    const enabled = target === 'mac' && env.HERMES_MAC_SIGNATURE_CACHE && identity &&
+    const enabled = target === 'mac' && env.HERMES_MAC_SIGNATURE_CACHE && identity && identity !== '-' &&
       policy.entitlementsInherit && policy.hardenedRuntime
     const cache = enabled && policy.entitlementsInherit ? makeCache({
       root: env.HERMES_MAC_SIGNATURE_CACHE, teamId: await team(identity, opts.keychain), identity,
@@ -46,7 +46,7 @@ export function createMacSigner(policy, { env = process.env, makeCache = createM
         if (file === opts.app) {
           rehashPayloadDigests(path.join(opts.app, 'Contents', 'Resources', 'agent-payload'))
         }
-        return optionsForFile(file)
+        return { ...optionsForFile(file), ...(identity === '-' ? { timestamp: 'none' } : {}) }
       }
     })
   }
