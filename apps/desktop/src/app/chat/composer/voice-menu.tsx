@@ -21,6 +21,7 @@ import { $wakeWord, toggleWakeWord } from '@/store/wake-word'
 import { ACTIVE_ICON_BTN, GHOST_ICON_BTN } from './control-classes'
 import type { ChatBarState, VoiceStatus } from './types'
 import { VoiceEngineRows } from './voice-engine-rows'
+import { dictationStatusLabel } from './voice-presentation'
 
 export interface VoiceMenuProps {
   autoSpeak: boolean
@@ -67,14 +68,7 @@ export function VoiceMenu({
   // while the mic is open.
   const active = dictating || wakeListening || autoSpeak
 
-  const dictationLabel =
-    voiceStatus === 'recording'
-      ? c.stopDictation
-      : voiceStatus === 'transcribing'
-        ? c.transcribingDictation
-        : voiceStatus === 'starting'
-          ? c.preparingAudio
-          : c.voiceDictation
+  const dictationLabel = dictationStatusLabel(voiceStatus, c)
 
   const wakeLabel = wakeListening ? c.wakeWordListening(phrase) : c.wakeWordOff(phrase)
   const triggerLabel = dictating ? dictationLabel : wakeListening ? wakeLabel : c.voiceControls

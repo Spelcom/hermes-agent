@@ -11,6 +11,7 @@ import { $wakeWord, toggleWakeWord } from '@/store/wake-word'
 
 import { ACTIVE_ICON_BTN, GHOST_ICON_BTN } from './control-classes'
 import type { ChatBarState, VoiceStatus } from './types'
+import { dictationStatusLabel } from './voice-presentation'
 
 export interface VoiceFanProps {
   autoSpeak: boolean
@@ -42,14 +43,7 @@ export function VoiceFan({ autoSpeak, disabled, state, voiceStatus, onDictate, o
   const wakeListening = wake.listening
   const wakePending = wake.pending
 
-  const dictationLabel =
-    voiceStatus === 'recording'
-      ? c.stopDictation
-      : voiceStatus === 'transcribing'
-        ? c.transcribingDictation
-        : voiceStatus === 'starting'
-          ? c.preparingAudio
-          : c.voiceDictation
+  const dictationLabel = dictationStatusLabel(voiceStatus, c)
 
   const hubLabel = dictating ? dictationLabel : c.voiceDictation
 
