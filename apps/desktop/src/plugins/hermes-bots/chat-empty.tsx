@@ -7,7 +7,7 @@
  * says whose it is.
  */
 
-import { host, useValue, Wordmark } from '@hermes/plugin-sdk'
+import { host, useValue } from '@hermes/plugin-sdk'
 
 import { avatarColor, botAppearance, BotFace } from './avatar'
 import { isBackfilledFacePng } from './avatar-image'
@@ -102,7 +102,7 @@ export function BotChatEmpty({ sessionId }: { sessionId: string }) {
           />
         </div>
 
-        <Wordmark className="mb-1" text={name} width="calc(80% - 1rem)" />
+        <h2 className="mb-1 text-lg font-medium text-foreground">{name}</h2>
 
         <p className="m-0 text-center leading-normal tracking-tight">{b.bot.chatEmpty}</p>
       </div>
