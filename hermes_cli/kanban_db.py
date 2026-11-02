@@ -1746,6 +1746,7 @@ def store_attachment_bytes(
     conn: sqlite3.Connection, task_id: str, filename: str, data: bytes, *,
     content_type: Optional[str] = None, uploaded_by: Optional[str] = None,
     board: Optional[str] = None, max_bytes: Optional[int] = None,
+    actor_profile: Optional[str] = None,
 ) -> int:
     """Single attachment write path (dashboard, tools, CLI): size cap, safe
     basename, collision-free blob under :func:`task_attachments_dir`, then the
@@ -1764,6 +1765,7 @@ def store_attachment_bytes(
         return add_attachment(
             conn, task_id, filename=dest_path.name, stored_path=str(dest_path.resolve()),
             content_type=content_type, size=len(data), uploaded_by=uploaded_by,
+            actor_profile=actor_profile,
         )
     except Exception:
         # Don't leave an orphan blob if the metadata insert fails (most
@@ -1776,26 +1778,13 @@ def store_attachment_bytes(
 def add_attachment(
     conn: sqlite3.Connection, task_id: str, *, filename: str, stored_path: str,
     content_type: Optional[str] = None, size: int = 0, uploaded_by: Optional[str] = None,
+    actor_profile: Optional[str] = None,
 ) -> int:
     """Record the metadata row (+ ``attached`` event) for a blob the caller already wrote."""
-    if not filename or not filename.strip():
-        raise ValueError("attachment filename is required")
-    if not stored_path or not stored_path.strip():
-        raise ValueError("attachment stored_path is required")
-    now = int(time.time())
-    with write_txn(conn):
-        _require_task(conn, task_id)
-        cur = conn.execute(
-            "INSERT INTO task_attachments "
-            "(task_id, filename, stored_path, content_type, size, uploaded_by, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (task_id, filename.strip(), stored_path, content_type, int(size), uploaded_by, now),
-        )
-        _append_event(
-            conn, task_id, "attached",
-            {"filename": filename.strip(), "size": int(size), "by": uploaded_by},
-        )
-        return int(cur.lastrowid or 0)
+    from hermes_cli.kanban_db_attachments import insert_attachment
+    return insert_attachment(conn, task_id, filename=filename, stored_path=stored_path,
+                             content_type=content_type, size=size, uploaded_by=uploaded_by,
+                             actor_profile=actor_profile)
 
 
 def list_attachments(conn: sqlite3.Connection, task_id: str) -> list[Attachment]:

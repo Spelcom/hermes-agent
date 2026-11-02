@@ -3,6 +3,29 @@
 // tests/tui_gateway/contracts/test_generated.py fails when this file is stale.
 /* eslint-disable */
 // ── Types ──
+export interface ActivityTransfersParams {
+  profile?: string | null
+  board?: string | null
+  since?: number
+}
+export interface ActivityTransfersResult {
+  transfers: ActivityTransfer[]
+  truncated: boolean
+}
+export interface ActivityTransfer {
+  id: string
+  kind: 'message' | 'file'
+  channel: 'bot_chat' | 'kanban'
+  status: 'settled' | 'available'
+  occurred_at: number
+  from_profile: string | null
+  from_origin: string | null
+  to_profile: string
+  task_id: string | null
+  file_name: string | null
+  content_type: string | null
+  bytes: number | null
+}
 /** Any method the desktop may route to a named profile (``requestGatewayForProfile`` adds ``profile``). */
 export interface ProfileParams {
   profile?: string | null
@@ -6055,6 +6078,8 @@ export type ConnectorErrorReason = 'INVALID_PARAMS' | 'NOT_OWNER' | 'UNSUPPORTED
 
 // ── Client→server methods ──
 export interface RpcMethods {
+  /** Latest 100 actual settled Bot Chat receipts and available task files for this profile. Metadata only; availability does not assert worker delivery or reading. Seed IDs on first load. */
+  'activity.transfers': { params: ActivityTransfersParams; result: ActivityTransfersResult }
   /** Registry-wide background process summary for ``/agents``. */
   'agents.list': { params: AgentsListParams; result: AgentsListResult }
   /** Replay the approvals still waiting on this session (reconnect / polling). */
@@ -6574,6 +6599,7 @@ export interface RpcMethods {
 }
 export type RpcMethod = keyof RpcMethods
 export const RPC_METHODS = [
+  'activity.transfers',
   'agents.list',
   'approval.pending',
   'approval.received',

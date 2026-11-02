@@ -2,6 +2,7 @@
 module is listed here so the generator and the runtime see the same catalog."""
 
 from . import (
+    activity,
     billing_delegation_pets,
     common,
     config_free_tier_control,

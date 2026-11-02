@@ -1,5 +1,6 @@
 """Authority-local async serialization; file locks cover only short synchronous mailbox I/O."""
 import asyncio
+import time
 from contextlib import asynccontextmanager
 
 from tools.bot_live_delivery import _locked, _read, _write
@@ -71,6 +72,12 @@ def _write_receipt(home, record, expect=_UNCHECKED):
                     or (current.get('admission_id') and current['admission_id'] != record.get('admission_id'))):
                 raise RuntimeStoreError('admission_conflict')
         merged = {**(current or {}), **record}
+        # Keep a durable transition time for read-only workspace projections. Re-reading or
+        # recovering an unchanged receipt must not make an old transfer look new.
+        if current is None or current.get('status') != merged.get('status'):
+            merged['status_changed_at'] = time.time()
+        elif 'status_changed_at' in current:
+            merged['status_changed_at'] = current['status_changed_at']
         if merged != current:
             _write(path, merged)
         return True

@@ -108,6 +108,7 @@ import type { PaginatedSessions, UsageStats } from '@/types/hermes'
 
 import type { SessionMutationSnapshot } from '../../../shared/src/session-http-mutations'
 
+import { openAgentChat } from './agent-chat'
 import { pluginDecisions, profiles, skills, toolsets } from './bridge'
 import { composerHost } from './composer'
 import { i18nHost } from './i18n'
@@ -118,7 +119,7 @@ import {
   pluginRouteStillRegistered,
   requestPluginProfile
 } from './profile-request'
-import { sessionsHost } from './sessions'
+import { $busyBySession, sessionsHost } from './sessions'
 import { desktopSettings } from './settings'
 
 /** Pane, status bar and titlebar slots; see `./areas` for the mount rules. */
@@ -230,17 +231,6 @@ const readViewport = (): ViewportRect => ({
   width: typeof window === 'undefined' ? 0 : window.innerWidth,
   height: typeof window === 'undefined' ? 0 : window.innerHeight,
   narrow: $narrowViewport.get()
-})
-
-/** Runtime session id → mid-turn. Not gateway socket state. */
-const $busyBySession = computed($sessionStates, states => {
-  const map: Record<string, boolean> = {}
-
-  for (const [id, state] of Object.entries(states)) {
-    map[id] = Boolean(state.busy)
-  }
-
-  return map
 })
 
 const $viewport = atom<ViewportRect>(readViewport())
@@ -1308,6 +1298,10 @@ export const host = {
 
     window.location.hash = '#/'
   },
+
+  /** Open an agent's canonical Bot Chat on its exact captured route. Explicit user action only;
+   *  the native Bots path resolves or creates it, following the current compression tip. */
+  openAgentChat,
 
   /** Front the tab a Bot Mode owner already has open — the tile that owner's
    *  zone last had active, else its most recent — and return that stored id;

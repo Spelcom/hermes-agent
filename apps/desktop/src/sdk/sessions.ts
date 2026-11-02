@@ -1,3 +1,5 @@
+import { computed } from 'nanostores'
+
 import {
   pinSession,
   setPinnedSessionOrder,
@@ -7,6 +9,18 @@ import {
 } from '@/store/layout'
 import { $sessions, sessionMatchesStoredId, sessionPinId } from '@/store/session'
 import { setSessionColorOverride } from '@/store/session-color'
+import { $sessionStates } from '@/store/session-states'
+
+/** Runtime session id → mid-turn. Not gateway socket state. */
+export const $busyBySession = computed($sessionStates, states => {
+  const map: Record<string, boolean> = {}
+
+  for (const [id, state] of Object.entries(states)) {
+    map[id] = Boolean(state.busy)
+  }
+
+  return map
+})
 
 /** Pins and colours are keyed by the DURABLE (lineage-root) id so they survive
  *  compression's session-id rotation; a row's live id resolves through

@@ -7,6 +7,24 @@
   },
   "methods": [
     {
+      "name": "activity.transfers",
+      "summary": "Latest 100 actual settled Bot Chat receipts and available task files for this profile. Metadata only; availability does not assert worker delivery or reading. Seed IDs on first load.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/ActivityTransfersParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/ActivityTransfersResult"
+        }
+      }
+    },
+    {
       "name": "agents.list",
       "summary": "Registry-wide background process summary for ``/agents``.",
       "params": [
@@ -4925,6 +4943,188 @@
           "subagent_id"
         ],
         "title": "ActiveSubagent",
+        "type": "object"
+      },
+      "ActivityTransfer": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "message",
+              "file"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "channel": {
+            "enum": [
+              "bot_chat",
+              "kanban"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "settled",
+              "available"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "occurred_at": {
+            "title": "Occurred At",
+            "type": "number"
+          },
+          "from_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Profile"
+          },
+          "from_origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Origin"
+          },
+          "to_profile": {
+            "title": "To Profile",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "content_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Type"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "channel",
+          "status",
+          "occurred_at",
+          "from_profile",
+          "from_origin",
+          "to_profile",
+          "task_id",
+          "file_name",
+          "content_type",
+          "bytes"
+        ],
+        "title": "ActivityTransfer",
+        "type": "object"
+      },
+      "ActivityTransfersParams": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "board": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Board"
+          },
+          "since": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Since",
+            "type": "number"
+          }
+        },
+        "title": "ActivityTransfersParams",
+        "type": "object"
+      },
+      "ActivityTransfersResult": {
+        "additionalProperties": false,
+        "properties": {
+          "transfers": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityTransfer"
+            },
+            "title": "Transfers",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "transfers",
+          "truncated"
+        ],
+        "title": "ActivityTransfersResult",
         "type": "object"
       },
       "AdmissionStatus": {

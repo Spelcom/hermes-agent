@@ -220,6 +220,8 @@ class AuthorityConnection:
         handlers['session.stats'] = partial(stats, self)
         from gateway.session_active_list import active_list
         handlers['session.active_list'] = partial(active_list, self)
+        from gateway.session_activity import transfers
+        handlers['activity.transfers'] = partial(transfers, self)
         from gateway.session_viewer_automation import automation
         handlers['session.automation'] = partial(automation, self)
         from gateway.session_reactions import react

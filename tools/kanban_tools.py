@@ -976,10 +976,12 @@ def _handle_comment(args: dict, **kw) -> str:
 def _store_attachment(board, tid, filename, data, content_type) -> str:
     """Store via ``kanban_db.store_attachment_bytes`` (shared size cap, per-task
     dir, metadata row) so agent, dashboard, and CLI surfaces stay in lockstep."""
+    from hermes_cli.profiles import current_profile_name
     with _board(board) as (kb, conn):
         att_id = kb.store_attachment_bytes(
             conn, tid, str(filename), data,
-            content_type=content_type, uploaded_by="agent", board=board)
+            content_type=content_type, uploaded_by="agent", board=board,
+            actor_profile=current_profile_name())
         return _ok(task_id=tid, attachment_id=att_id, size=len(data))
 
 
