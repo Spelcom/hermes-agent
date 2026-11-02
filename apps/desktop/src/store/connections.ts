@@ -13,6 +13,7 @@ import {
 } from '@/lib/with-timeout'
 import { $connectionsRegistry } from '@/store/connection-registry-state'
 import { $defaultProfileRoute, refreshDefaultProfile } from '@/store/default-profile'
+import { $fleetRoster, refreshFleetRoster } from '@/store/fleet-roster'
 import { supersedeGatewaySwitch } from '@/store/gateway-switch'
 import {
   $activeGatewayProfile,
@@ -39,7 +40,7 @@ import {
 import { reloadOpenStarmapGraph, resetStarmapGraph } from '@/store/starmap'
 import { isPeerInstanceWindow, windowProfileOverride } from '@/store/windows'
 
-import { startupProfileForConnection } from './startup-profile-restore'
+import { launchTargetUnreachable, startupProfileForConnection } from './startup-profile-restore'
 
 const LAST_PROFILE_STORAGE_KEY = 'hermes.desktop.lastProfileByConnection'
 
@@ -245,6 +246,38 @@ function waitForInitialConnection(): Promise<void> {
   })
 }
 
+/** The silent launch restore lands only while its target can still be reached.
+ *  The window shows the source main opened first while the restore dials, and a
+ *  down target's dial waits out its readiness budget: once the roster reports
+ *  the target down, the window has fallen back, and the target recovering later
+ *  must not re-home it (the user may be working there by then). The kept socket
+ *  (store/gateway-persistence) still reconnects the target, so its sessions fill
+ *  in without moving the window. */
+async function restoreConnection(connectionId: string, profile?: null | string): Promise<void> {
+  const restore = selectConnection(connectionId, { profile, restore: true })
+  // selectConnection claims its revision before its first await.
+  const revision = switchRevision
+  const ownsPick = () => revision === switchRevision && pendingTarget?.startsWith(`${connectionId}::`) === true
+
+  if (!ownsPick()) {
+    return restore
+  }
+
+  const off = $fleetRoster.subscribe(roster => {
+    if (ownsPick() && launchTargetUnreachable(roster, connectionId)) {
+      abandonPick()
+    }
+  })
+
+  void refreshFleetRoster()
+
+  try {
+    await restore
+  } finally {
+    off()
+  }
+}
+
 /** Electron's legacy `profile` preference is global, while the restored primary
  *  connection can be remote. Validate that inherited name against the selected
  *  source before treating it as the new session's owner. Callers handle an
@@ -280,7 +313,7 @@ async function reconcileStartupProfile(
   const target = startupProfileForConnection(profile, startupLastProfileByConnection[connectionId], roster.profiles)
 
   if (target) {
-    await selectConnection(connectionId, { profile: target, restore: true })
+    await restoreConnection(connectionId, target)
   } else if (roster.profiles.some(candidate => candidate.name === profile)) {
     $lastProfileByConnection.set({ ...$lastProfileByConnection.get(), [connectionId]: profile })
   }
@@ -294,7 +327,7 @@ async function restorePreferredConnection(
   freshSessionRequest: number
 ): Promise<void> {
   if ($activeConnectionId.get() !== preferredId) {
-    await selectConnection(preferredId, { restore: true })
+    await restoreConnection(preferredId)
 
     return
   }
@@ -361,7 +394,7 @@ export async function initializeConnectionsRegistry(): Promise<DesktopConnection
     }
 
     if (registry.connections.some(connection => connection.id === connectionId)) {
-      await selectConnection(connectionId, { profile: defaultRoute.profile, restore: true })
+      await restoreConnection(connectionId, defaultRoute.profile)
     }
 
     return $connectionsRegistry.get() ?? registry
