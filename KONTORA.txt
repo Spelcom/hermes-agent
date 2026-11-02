@@ -1,11 +1,11 @@
-Personal CL / Kontora desktop
+Personal Ciel / Kontora desktop
 
 Base: Hermes Agent v0.22.5. Original MIT license and attribution remain in LICENSE.
 Fork: https://github.com/Spelcom/hermes-agent
 Personal branch: kontora/stable-v0.22.5
 Upstream: https://github.com/NousResearch/hermes-agent
 
-Changes: personal CL artwork; quiet empty-chat screen; no persistent portal legal
+Changes: personal Ciel artwork; quiet empty-chat screen; no persistent portal legal
 banner; exact native employee-chat action; profile-scoped durable transfer activity
 for the separate Kontora desktop plugin. Runtime profiles and credentials are not
 part of this repository.
