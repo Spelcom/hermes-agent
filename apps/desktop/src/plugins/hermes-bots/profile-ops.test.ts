@@ -159,6 +159,66 @@ describe('duplicating a bot', () => {
  * RPCs are the same reads, addressed by the row's backend name.
  */
 describe('roster avatar sync (#102978)', () => {
+  it('never backfills a sparse row whose avatar presence is unknown', async () => {
+    const { pullServerAvatars } = await import('./profile-ops')
+    $botMeta.set({ 'local::unknown-avatar': { image: 'data:image/png;base64,c3RhbGU=' } })
+    pullServerAvatars([{ name: 'unknown-avatar', connectionId: 'local', sourceScoped: true } as RosterRow])
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(hostMock.request).not.toHaveBeenCalled()
+  })
+
+  it('prefers an existing server avatar over stale local art even with a missing-avatar hint', async () => {
+    const { pullServerAvatars } = await import('./profile-ops')
+    const serverImage = 'data:image/png;base64,c2VydmVy'
+    hostMock.request.mockResolvedValue({ found: true, data: serverImage })
+    $botMeta.set({ 'local::existing-avatar': { image: 'data:image/png;base64,c3RhbGU=', imageKind: 'photo' } })
+    pullServerAvatars([
+      { name: 'existing-avatar', connectionId: 'local', sourceScoped: true, has_avatar: false } as RosterRow
+    ])
+    await vi.waitFor(() => expect($botMeta.get()['local::existing-avatar']?.image).toBe(serverImage))
+    expect(hostMock.request.mock.calls.map(([method]) => method)).toEqual(['profiles.get_asset'])
+    expect(hostMock.requestProfile).not.toHaveBeenCalled()
+  })
+
+  it('backfills only after the active source confirms an explicit missing avatar', async () => {
+    const { pullServerAvatars } = await import('./profile-ops')
+    const image = 'data:image/png;base64,bG9jYWw='
+    hostMock.request.mockImplementation(async method =>
+      method === 'profiles.get_asset' ? { found: false } : { ok: true }
+    )
+    $botMeta.set({ 'local::missing-alias': { image } })
+    pullServerAvatars([
+      {
+        name: 'missing-alias',
+        connectionId: 'local',
+        sourceScoped: true,
+        has_avatar: false,
+        route: { connectionId: 'local', mode: 'local', profile: 'missing-alias', targetProfile: 'actual-owner' }
+      } as RosterRow
+    ])
+    await vi.waitFor(() => expect(hostMock.request).toHaveBeenCalledTimes(2))
+    expect(hostMock.request.mock.calls).toEqual([
+      ['profiles.get_asset', { name: 'actual-owner', asset: 'avatar' }],
+      ['profiles.set_asset', { name: 'actual-owner', asset: 'avatar', data: image }]
+    ])
+    expect(hostMock.requestProfile).not.toHaveBeenCalled()
+  })
+
+  it('does not write when preflight fails and clears its in-flight guard for retry', async () => {
+    const { pullServerAvatars } = await import('./profile-ops')
+    const row = { name: 'retry-avatar', has_avatar: false } as RosterRow
+    $botMeta.set({ 'retry-avatar': { image: 'data:image/png;base64,bG9jYWw=' } })
+    hostMock.request.mockRejectedValueOnce(new Error('offline'))
+    pullServerAvatars([row])
+    pullServerAvatars([row])
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(hostMock.request.mock.calls.map(([method]) => method)).toEqual(['profiles.get_asset'])
+    hostMock.request.mockResolvedValue({ found: true, data: 'data:image/png;base64,c2VydmVy' })
+    pullServerAvatars([row])
+    await vi.waitFor(() => expect(hostMock.request).toHaveBeenCalledTimes(2))
+    expect(hostMock.request.mock.calls.map(([method]) => method)).toEqual(['profiles.get_asset', 'profiles.get_asset'])
+  })
+
   it('fetches has_avatar art through the active gateway, never a per-row secondary dial', async () => {
     const { pullServerAvatars } = await import('./profile-ops')
     hostMock.request.mockResolvedValue({ found: false })

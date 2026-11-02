@@ -65,58 +65,50 @@ function pushLocalAvatars(roster: RosterRow[]) {
   for (const bot of roster) {
     const key = botMetaKey(bot)
 
-    if (bot.has_avatar || avatarPushInflight.has(key)) {
+    // A sparse/older row cannot establish that a server asset is absent.
+    if (bot.has_avatar !== false || avatarPushInflight.has(key)) {
       continue
     }
 
     const image = $botMeta.get()[key]?.image
+    const localImage = typeof image === 'string' && image.startsWith('data:') ? image : null
+    const svg = localImage ? null : document.querySelector('svg[data-bot-face=' + JSON.stringify(bot.name) + ']')
 
-    if (image && typeof image === 'string' && image.startsWith('data:')) {
-      avatarPushInflight.add(key)
-
-      const request = requestAssetOnActiveSource(bot, 'profiles.set_asset', {
-        name: bot.name,
-        asset: 'avatar',
-        data: image
-      })
-
-      Promise.resolve(request)
-        .then(() =>
-          queryClient.invalidateQueries({
-            queryKey: ['hermes-bots', 'roster']
-          })
-        )
-        .catch(() => avatarPushInflight.delete(key))
-
-      continue
-    }
-
-    // Vector shape/color face: no image exists anywhere — rasterize the
-    // live SVG (tagged data-bot-face) to a PNG and push that, so the
-    // inter-agent notices (core #85855/#85888) can show the real pfp.
-    const svg = document.querySelector('svg[data-bot-face=' + JSON.stringify(bot.name) + ']')
-
-    if (!svg) {
+    if (!localImage && !svg) {
       continue
     }
 
     avatarPushInflight.add(key)
-    rasterizeSvgToPng(svg, 160)
-      .then(png =>
-        png
-          ? requestAssetOnActiveSource(bot, 'profiles.set_asset', {
-              name: bot.name,
-              asset: 'avatar',
-              data: png
-            }).then(() =>
-              queryClient.invalidateQueries({
-                queryKey: ['hermes-bots', 'roster']
-              })
-            )
-          : Promise.reject(new Error('rasterize failed'))
-      )
-      .catch(() => avatarPushInflight.delete(key))
+    void backfillLocalAvatar(bot, localImage, svg)
+      .catch(() => undefined)
+      .finally(() => avatarPushInflight.delete(key))
   }
+}
+
+/** A roster hint may be stale: re-read the source before rasterizing or writing. */
+async function backfillLocalAvatar(bot: RosterRow, image: null | string, svg: Element | null): Promise<void> {
+  const server = await requestAssetOnActiveSource<ProfilesGetAssetResult>(bot, 'profiles.get_asset', {
+    asset: 'avatar'
+  })
+
+  if (server?.found === true) {
+    rememberServerAvatar(bot, server)
+
+    return
+  }
+
+  if (server?.found !== false) {
+    return
+  }
+
+  const data = image || (svg ? await rasterizeSvgToPng(svg, 160) : null)
+
+  if (!data) {
+    return
+  }
+
+  await requestAssetOnActiveSource(bot, 'profiles.set_asset', { asset: 'avatar', data })
+  await queryClient.invalidateQueries({ queryKey: ['hermes-bots', 'roster'] })
 }
 
 /** Serialize an inline SVG and draw it to a canvas -> PNG data URL. */
