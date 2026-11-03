@@ -4,6 +4,7 @@ import { hermesApi } from '@/hermes'
 import { pauseBackgroundVoice } from '@/lib/canvas-voice-ownership'
 import { resolveVoiceLiveCallUrl } from '@/lib/voice-live-call-url'
 import { delegationRequest, LiveTranscriptAccumulator, liveWireEvent } from '@/lib/voice-live-protocol'
+import { withTimeout } from '@/lib/with-timeout'
 
 /**
  * GPT-Live voice chat: the full-duplex voice frontend that DELEGATES to Hermes.
@@ -217,9 +218,13 @@ export class VoiceLiveSession {
   private peer: null | RTCPeerConnection = null
   private events: null | RTCDataChannel = null
   private microphone: null | MediaStream = null
+  private silentInputContext: null | AudioContext = null
+  private silentInputSource: null | ConstantSourceNode = null
+  private silentInputStream: null | MediaStream = null
   private closeTimer: null | number = null
   private finalized = false
   private started = false
+  private startupStage: 'microphone' | 'voice' = 'microphone'
   private eventCounter = 0
   private readonly transcript = new LiveTranscriptAccumulator()
   private readonly delegations = new Set<string>()
@@ -277,7 +282,18 @@ export class VoiceLiveSession {
     return this.transcript.fragments.filter(fragment => fragment.endMs >= floor).slice(-CONTEXT_MAX_FRAGMENTS)
   }
 
-  async start(
+  async start(history: LiveHistoryMessage[], ownerSessionId?: string | null, options: { microphone?: boolean } = {}): Promise<void> {
+    await withTimeout(this.openConnection(history, ownerSessionId, options), 60_000,
+      'Не удалось соединиться с голосом за 60 секунд. Попробуйте ещё раз.', error => {
+        if (this.startupStage === 'microphone') {
+          error.message = 'Микрофон не ответил за 60 секунд. Проверьте разрешение на микрофон и попробуйте ещё раз.'
+        }
+
+        this.finish('close_requested', null)
+      })
+  }
+
+  private async openConnection(
     history: LiveHistoryMessage[],
     ownerSessionId?: string | null,
     options: { microphone?: boolean } = {}
@@ -304,24 +320,15 @@ export class VoiceLiveSession {
     })
 
     if (options.microphone === false) {
-      connection.addTransceiver('audio', { direction: 'recvonly' })
+      this.startupStage = 'voice'
+      await this.openSilentInput(connection)
     } else {
-      const microphone = await navigator.mediaDevices.getUserMedia({
-        audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true }
-      })
-
-      if (this.finalized) {
-        microphone.getTracks().forEach(track => track.stop())
-
-        return
-      }
-
-      this.microphone = microphone
-
-      for (const track of microphone.getAudioTracks()) {
-        connection.addTrack(track, microphone)
-      }
+      await this.openMicrophone(connection)
     }
+
+    if (this.finalized) { return }
+
+    this.startupStage = 'voice'
 
     // Register the data channel before the offer so its m-line is negotiated.
     const events = connection.createDataChannel('oai-events')
@@ -342,6 +349,8 @@ export class VoiceLiveSession {
     if (!sdp) {
       throw new Error('Missing local SDP offer')
     }
+
+    if (this.finalized) { return }
 
     const response = await hermesApiAs<{
       ok: boolean
@@ -388,6 +397,49 @@ export class VoiceLiveSession {
     await connection.setRemoteDescription({ sdp: response.transport.sdp, type: 'answer' })
     await this.waitUntilConnected()
     this.started = !this.finalized
+  }
+
+  private async openMicrophone(connection: RTCPeerConnection): Promise<void> {
+    const permitted = await window.hermesDesktop?.requestMicrophoneAccess?.()
+
+    if (this.finalized) { return }
+
+    if (permitted === false) { throw new DOMException('Microphone access denied', 'NotAllowedError') }
+
+    const microphone = await navigator.mediaDevices.getUserMedia({
+      audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true }
+    })
+
+    if (this.finalized) {
+      microphone.getTracks().forEach(track => track.stop())
+
+      return
+    }
+
+    this.microphone = microphone
+
+    for (const track of microphone.getAudioTracks()) {
+      connection.addTrack(track, microphone)
+    }
+  }
+
+  /** Match Codex native send/receive negotiation without opening an input device. */
+  private async openSilentInput(connection: RTCPeerConnection): Promise<void> {
+    const context = new AudioContext()
+    this.silentInputContext = context
+    const destination = context.createMediaStreamDestination()
+    this.silentInputStream = destination.stream
+    const source = context.createConstantSource()
+    source.offset.value = 0
+    source.connect(destination)
+    source.start()
+    this.silentInputSource = source
+
+    for (const track of destination.stream.getAudioTracks()) {
+      connection.addTrack(track, destination.stream)
+    }
+
+    await context.resume()
   }
 
   private armSpeakingProbe(stream: MediaStream): void {
@@ -488,7 +540,7 @@ export class VoiceLiveSession {
       })
       socket.addEventListener('close', event => {
         fail(event.code)
-        this.finish('connection_lost', null)
+        this.finish(`Codex voice connection closed (code ${event.code})`, null)
       })
     })
   }
@@ -744,6 +796,13 @@ export class VoiceLiveSession {
       this.speakingProbe = null
     }
 
+    this.silentInputSource?.stop()
+    this.silentInputSource?.disconnect()
+    this.silentInputStream?.getTracks().forEach(track => track.stop())
+    void this.silentInputContext?.close().catch(() => undefined)
+    this.silentInputSource = null
+    this.silentInputStream = null
+    this.silentInputContext = null
     this.analyser?.disconnect()
     void this.audioContext?.close().catch(() => undefined)
     this.microphone?.getTracks().forEach(track => track.stop())

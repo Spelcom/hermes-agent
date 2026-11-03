@@ -45,6 +45,7 @@ class Lease extends EventTarget {
   close = vi.fn()
 }
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   setApiRequestConnection(null)
@@ -55,6 +56,12 @@ afterEach(() => {
 function setup() {
   const channel = new Channel()
   const transceiver = vi.fn()
+  const addTrack = vi.fn()
+  const silentTrack = { stop: vi.fn() }
+  const silentStream = { getAudioTracks: () => [silentTrack], getTracks: () => [silentTrack] }
+  const silentSource = { offset: { value: 1 }, connect: vi.fn(), start: vi.fn(), stop: vi.fn(), disconnect: vi.fn() }
+  const silentContext = { createConstantSource: () => silentSource, createMediaStreamDestination: () => ({ stream: silentStream }), resume: vi.fn(async () => undefined), close: vi.fn(async () => undefined) }
+  vi.stubGlobal('AudioContext', class { constructor() { return silentContext } })
   const track = { enabled: true, stop: vi.fn() }
   const getUserMedia = vi.fn(async () => ({ getAudioTracks: () => [track], getTracks: () => [track] }))
   vi.stubGlobal(
@@ -66,7 +73,7 @@ function setup() {
       createOffer = async () => ({})
       setLocalDescription = async () => undefined
       setRemoteDescription = async () => undefined
-      addTrack = vi.fn()
+      addTrack = addTrack
       addTransceiver = transceiver
       close = vi.fn()
     }
@@ -84,9 +91,10 @@ function setup() {
     transport: { sdp: 'answer' }
   }))
 
-  Object.defineProperty(window, 'hermesDesktop', { configurable: true, value: { api } })
+  const requestMicrophoneAccess = vi.fn(async () => true)
+  Object.defineProperty(window, 'hermesDesktop', { configurable: true, value: { api, requestMicrophoneAccess } })
 
-  return { channel, api, getUserMedia, transceiver, track }
+  return { channel, api, getUserMedia, transceiver, track, addTrack, silentTrack, silentStream, silentSource, silentContext, requestMicrophoneAccess }
 }
 
 describe('native Codex live conversation', () => {
@@ -154,8 +162,47 @@ describe('native Codex live conversation', () => {
     session.close()
   })
 
-  it('negotiates receive-only audio for the check without opening the microphone', async () => {
-    const { getUserMedia, transceiver } = setup()
+  it('honors native microphone denial before browser capture or broker startup', async () => {
+    const { requestMicrophoneAccess, getUserMedia, api } = setup()
+    requestMicrophoneAccess.mockResolvedValueOnce(false)
+    const session = new VoiceLiveSession({ onDelegation: vi.fn(), onClosed: vi.fn(), onError: vi.fn() }, { connectionId: 'office', profile: 'worker' })
+    await expect(session.start([], 'runtime-owner')).rejects.toMatchObject({ name: 'NotAllowedError' })
+    expect(getUserMedia).not.toHaveBeenCalled()
+    expect(api).not.toHaveBeenCalled()
+    session.close()
+  })
+
+  it('does not open browser capture if the owned call closes while native permission is pending', async () => {
+    const { requestMicrophoneAccess, getUserMedia, api } = setup()
+    let allow: (permitted: boolean) => void = () => undefined
+    requestMicrophoneAccess.mockImplementationOnce(() => new Promise(resolve => { allow = resolve }))
+    const session = new VoiceLiveSession({ onDelegation: vi.fn(), onClosed: vi.fn(), onError: vi.fn() }, { connectionId: 'office', profile: 'worker' })
+    const pending = session.start([], 'runtime-owner')
+    session.close()
+    allow(true)
+    await pending
+    expect(getUserMedia).not.toHaveBeenCalled()
+    expect(api).not.toHaveBeenCalled()
+  })
+
+  it('bounds a pending microphone request and stops a late track without creating a broker call', async () => {
+    vi.useFakeTimers()
+    const { getUserMedia, api, track } = setup()
+    let permit: (stream: { getAudioTracks: () => typeof track[]; getTracks: () => typeof track[] }) => void = () => undefined
+    getUserMedia.mockImplementationOnce(() => new Promise(resolve => { permit = resolve }))
+    const session = new VoiceLiveSession({ onDelegation: vi.fn(), onClosed: vi.fn(), onError: vi.fn() }, { connectionId: 'office', profile: 'worker' })
+    const pending = session.start([], 'runtime-owner')
+    const failed = expect(pending).rejects.toThrow('Микрофон не ответил за 60 секунд')
+    await vi.advanceTimersByTimeAsync(60_000)
+    await failed
+    permit({ getAudioTracks: () => [track], getTracks: () => [track] })
+    await Promise.resolve()
+    expect(track.stop).toHaveBeenCalledOnce()
+    expect(api).not.toHaveBeenCalled()
+  })
+
+  it('sends synthetic zero audio for the check and releases its own source, track and context', async () => {
+    const { getUserMedia, transceiver, addTrack, silentTrack, silentStream, silentSource, silentContext, requestMicrophoneAccess } = setup()
 
     const session = new VoiceLiveSession(
       { onDelegation: vi.fn(), onClosed: vi.fn(), onError: vi.fn() },
@@ -164,7 +211,16 @@ describe('native Codex live conversation', () => {
 
     await session.start([], 'runtime-owner', { microphone: false })
     expect(getUserMedia).not.toHaveBeenCalled()
-    expect(transceiver).toHaveBeenCalledWith('audio', { direction: 'recvonly' })
+    expect(requestMicrophoneAccess).not.toHaveBeenCalled()
+    expect(transceiver).not.toHaveBeenCalled()
+    expect(addTrack).toHaveBeenCalledWith(silentTrack, silentStream)
+    expect(silentSource.offset.value).toBe(0)
+    expect(silentSource.start).toHaveBeenCalledOnce()
+    expect(silentContext.resume).toHaveBeenCalledOnce()
     session.close()
+    expect(silentSource.stop).toHaveBeenCalledOnce()
+    expect(silentSource.disconnect).toHaveBeenCalledOnce()
+    expect(silentTrack.stop).toHaveBeenCalledOnce()
+    expect(silentContext.close).toHaveBeenCalledOnce()
   })
 })

@@ -824,12 +824,24 @@ async def voice_live_call_ws(ws: WebSocket, call_id: str):
     The call capability is sent in the first frame, separate from the gateway's
     ordinary WS authentication, so it never appears in proxy URL access logs.
     """
-    if not _ws_auth_ok(ws):
-        await ws.close(code=4401)
-        return
+    from hermes_cli.dashboard_auth.native_voice import native_voice_profile_scope, redeem_native_voice_call
     if not _ws_request_is_allowed(ws):
         await ws.close(code=4403)
         return
+    grant = redeem_native_voice_call(ws)
+    if grant is None:
+        if not _ws_auth_ok(ws):
+            await ws.close(code=4401)
+            return
+    else:
+        from hermes_cli.web_server_boundary import _GATEWAY_WS_PROTOCOL
+        ws._hermes_ws_subprotocol = _GATEWAY_WS_PROTOCOL
+        ws._hermes_auth_identity = {"user_id": grant["subject"], "provider": "local"}
+    with native_voice_profile_scope(grant):
+        await _voice_live_call_lease(ws, call_id)
+
+
+async def _voice_live_call_lease(ws: WebSocket, call_id: str):
     from hermes_constants import get_hermes_home
     from tools.voice_live_codex import (
         CallOwnershipError, LEASE_IDLE_TIMEOUT_S, get_managed_call, stop_managed_call,

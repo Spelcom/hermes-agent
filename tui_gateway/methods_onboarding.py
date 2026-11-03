@@ -44,13 +44,17 @@ def _run_state(*, assume_fresh: bool = False) -> dict:
 
 def _due_now(*, assume_fresh: bool = False) -> dict[str, bool]:
     from hermes_cli.onboarding_run import should_run
+
+    run = should_run(assume_fresh=assume_fresh)
+    if not run:
+        return {"run": False, "eligible": False}
     from hermes_cli.welcome_trial import inference_available
 
     # Read in the default profile, where onboarding runs, not the launch profile.
     home = _profile_home("default")
     with _session_profile_runtime_scope({"profile_home": str(home) if home else None}):
         eligible = inference_available(assume_fresh=assume_fresh)
-    return {"run": should_run(assume_fresh=assume_fresh), "eligible": eligible}
+    return {"run": run, "eligible": eligible}
 
 
 def _due_stamp() -> tuple:

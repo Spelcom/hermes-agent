@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { VoiceLiveHandlers } from './voice-live'
 import { checkLiveVoice } from './voice-live-check'
@@ -12,8 +12,10 @@ vi.mock('./voice-live', () => ({ VoiceLiveSession: class {
   waitUntilConnected = async () => undefined
 } }))
 
+afterEach(() => vi.clearAllMocks())
+
 describe('explicit native voice check', () => {
-  it('requires assistant text and measured speech before success and closes the receive-only call', async () => {
+  it('requires assistant text and measured speech before success and closes the microphone-free call', async () => {
     const controller = new AbortController()
     let succeeded = false
     const run = checkLiveVoice({ connectionId: 'office', profile: 'worker' }, 'runtime-owner', controller.signal).then(() => { succeeded = true })
@@ -33,4 +35,12 @@ describe('explicit native voice check', () => {
     expect(succeeded).toBe(true)
     expect(fake.close).toHaveBeenCalled()
   })
+  it('preserves a safe numeric lease close code instead of masking it with the generic check failure', async () => {
+    const controller = new AbortController()
+    const run = checkLiveVoice({ connectionId: 'office', profile: 'worker' }, 'runtime-owner', controller.signal)
+    fake.handlers!.onClosed('Codex voice connection closed (code 4401)', null)
+    await expect(run).rejects.toThrow('Codex voice connection closed (code 4401)')
+    expect(fake.close).toHaveBeenCalled()
+  })
+
 })

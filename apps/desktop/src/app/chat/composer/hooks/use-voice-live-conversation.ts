@@ -4,6 +4,7 @@ import { useI18n } from '@/i18n'
 import { sanitizeTextForSpeech } from '@/lib/speech-text'
 import { type LiveHistoryMessage, type LiveTranscriptFragment, VoiceLiveSession } from '@/lib/voice-live'
 import { isVoiceStopCommand } from '@/lib/voice-stop-word'
+import { withTimeout } from '@/lib/with-timeout'
 import { notify, notifyError } from '@/store/notifications'
 
 import { useComposerScope } from '../scope'
@@ -257,7 +258,7 @@ export function useVoiceLiveConversation({
     const epoch = ++startEpochRef.current
 
     try {
-      await latest.current.beforeMicOpen?.()
+      await withTimeout(Promise.resolve(latest.current.beforeMicOpen?.()), 10_000, 'Voice microphone preparation timed out')
     } catch {
       // A wake-pause failure must not block an explicit start.
     }

@@ -42,9 +42,10 @@ def test_state_answers_run_and_eligible(launched_under_work, monkeypatch):
         monkeypatch.delenv(var, raising=False)
     assert _call("onboarding.state")["result"] == {"run": False, "eligible": False, "session_id": None, "run_id": None}
 
-    # Onboarding runs in the default profile, so its key is what makes the run eligible.
+    # Explicitly reopening onboarding makes readiness relevant; its default
+    # profile's key is what makes that run eligible.
     (root / ".env").write_text("OPENROUTER_API_KEY=sk-or-test\n", encoding="utf-8")
-    assert _call("onboarding.state")["result"]["eligible"] is True
+    assert _call("onboarding.set_run", {"run": True})["result"]["eligible"] is True
 
 
 def test_set_run_writes_the_root_config(launched_under_work):
@@ -97,3 +98,42 @@ def test_a_failed_write_fails_the_call_and_writes_nothing(launched_under_work, m
 def test_set_run_requires_a_bool(launched_under_work):
     assert "error" in _call("onboarding.set_run", {})
     assert "error" in _call("onboarding.set_run", {"run": "yes"})
+
+
+def test_completed_install_never_probes_inference_readiness(launched_under_work, monkeypatch):
+    from hermes_cli import welcome_trial
+
+    as_local_desktop_backend(monkeypatch)
+    monkeypatch.setattr(welcome_trial, "inference_available",
+                        lambda **kwargs: pytest.fail("completed onboarding must not probe provider readiness"))
+
+    assert _call("onboarding.state")["result"] == {
+        "run": False, "eligible": False, "session_id": None, "run_id": None,
+    }
+
+
+@pytest.mark.parametrize("eligible", [False, True])
+def test_due_install_preserves_default_profile_readiness(launched_under_work, monkeypatch, eligible):
+    from hermes_cli import onboarding_run, welcome_trial
+    from hermes_constants import get_hermes_home
+
+    root, work = launched_under_work
+    as_local_desktop_backend(monkeypatch)
+    probes = []
+    decisions = []
+
+    def should_run(*, assume_fresh):
+        decisions.append(assume_fresh)
+        return True
+
+    def inference_available(*, assume_fresh):
+        probes.append((get_hermes_home(), assume_fresh))
+        return eligible
+
+    monkeypatch.setattr(onboarding_run, "should_run", should_run)
+    monkeypatch.setattr(welcome_trial, "inference_available", inference_available)
+    result = _call("onboarding.state", {"assume_fresh": True})["result"]
+    assert result["run"] is True and result["eligible"] is eligible
+    assert decisions == [True]
+    assert probes == [(root, True)]
+    assert get_hermes_home() == work

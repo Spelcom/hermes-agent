@@ -3,6 +3,7 @@
 import asyncio
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -47,7 +48,25 @@ def voice_client(tmp_path, monkeypatch):
     # The real gateway authentication check remains; TestClient's peer/host is
     # synthetic, so only its transport boundary is replaced.
     monkeypatch.setattr(audio, "_ws_request_is_allowed", lambda ws: True)
-    with TestClient(web_server.app) as client:
+    from gateway.run_api import GatewayRuntimeAPI
+    from gateway.runtime_bootstrap import TicketStore
+    from gateway.session_authorities import SessionAuthorities
+    instance_id = "native-voice-test-owner"
+    authorities = [SimpleNamespace(profile_id=str(path.resolve()), instance_id=instance_id)
+                   for path in (home, other)]
+    store = TicketStore(instance_id, frozenset(authority.profile_id for authority in authorities))
+    registry = SessionAuthorities(home, multiplexed=True)
+    for authority, name in zip(authorities, ("default", "other")):
+        registry.add(authority.profile_id, authority, name=name)
+    runner = SimpleNamespace(
+        session_ticket_store=store, session_authorities=registry, _draining=False,
+        session_runtime_descriptor={"state": "ready", "instance_id": instance_id,
+                                    "served_profiles": [{"profile_id": a.profile_id, "home": a.profile_id}
+                                                        for a in authorities]},
+    )
+    monkeypatch.setattr(web_server.app.state, "gateway_runner", runner, raising=False)
+    app = GatewayRuntimeAPI(web_server.app, runner, web_server.app)
+    with TestClient(app, client=("127.0.0.1", 50001)) as client:
         client.headers["Authorization"] = f"Bearer {web_server._SESSION_TOKEN}"
         yield client, calls, web_server._SESSION_TOKEN, home
 
@@ -123,4 +142,88 @@ def test_native_ticket_lease_negotiates_public_protocol_and_consumes_ticket(voic
             with client.websocket_connect(lease_url, subprotocols=protocols):
                 pass
         assert not calls[0].stopped.is_set()
+    assert calls[0].stopped.wait(timeout=3)
+
+
+def test_private_runtime_ticket_reaches_voice_lease_and_cannot_replay(voice_client):
+    from hermes_cli import web_server
+
+    client, calls, _token, home = voice_client
+    call = _create(client)
+    store = web_server.app.state.gateway_runner.session_ticket_store
+    ticket = store.mint(profile_id=str(home.resolve()), subject="uid:native-owner", purpose="interactive")
+    protocols = ["hermes-gateway-v1", f"hermes-gateway-ticket.{ticket}"]
+    url = f'/api/audio/voice-live/calls/{call["call_id"]}?profile=default'
+    with client.websocket_connect(url, subprotocols=protocols) as ws:
+        assert ws.accepted_subprotocol == "hermes-gateway-v1"
+        ws.send_json({"type": "authenticate", "call_token": call["call_token"], "session_id": "hermes-a"})
+        assert ws.receive_json() == {"type": "lease.ready"}
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(url, subprotocols=protocols):
+                pass
+        assert not calls[0].stopped.is_set()
+    assert calls[0].stopped.wait(timeout=3)
+
+
+@pytest.mark.parametrize("failure", ["wrong-purpose", "expired", "foreign-profile", "repeated-profile", "malformed-profile", "origin", "stale-instance", "retiring-profile"])
+def test_private_voice_ticket_refusals_preserve_the_call(voice_client, monkeypatch, failure):
+    from hermes_cli import web_server
+
+    client, calls, _token, home = voice_client
+    call = _create(client)
+    runner = web_server.app.state.gateway_runner
+    store = runner.session_ticket_store
+    purpose = "native-http" if failure == "wrong-purpose" else "interactive"
+    if failure == "expired":
+        monkeypatch.setattr(store, "TTL_SECONDS", 0)
+    ticket = store.mint(profile_id=str(home.resolve()), subject="uid:native-owner", purpose=purpose)
+    query = "?profile=other" if failure == "foreign-profile" else "?profile=default"
+    if failure == "repeated-profile":
+        query += "&profile=other"
+    if failure == "malformed-profile":
+        query = "?profile=../other"
+    if failure == "stale-instance":
+        runner.session_runtime_descriptor["instance_id"] = "another-owner"
+    if failure == "retiring-profile":
+        runner.session_authorities.for_home(home).retiring = True
+        # The descriptor can stop serving a profile before its ticket-store
+        # entry is withdrawn; this late upgrade must still be refused.
+        runner.session_runtime_descriptor["served_profiles"] = [
+            entry for entry in runner.session_runtime_descriptor["served_profiles"]
+            if entry["profile_id"] != str(home.resolve())
+        ]
+    headers = {"Origin": "file://"} if failure == "origin" else {}
+    try:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(
+                f'/api/audio/voice-live/calls/{call["call_id"]}{query}', headers=headers,
+                subprotocols=["hermes-gateway-v1", f"hermes-gateway-ticket.{ticket}"],
+            ):
+                pass
+        assert not calls[0].stopped.is_set()
+    finally:
+        response = client.post(f'/api/audio/voice-live/calls/{call["call_id"]}/close',
+                               json={"call_token": call["call_token"], "session_id": "hermes-a"})
+        assert response.status_code == 200
+        assert calls[0].stopped.wait(timeout=3)
+
+
+def test_private_voice_ticket_pins_implicit_secondary_profile(voice_client):
+    from hermes_cli import web_server
+
+    client, calls, _token, home = voice_client
+    response = client.post("/api/audio/voice-live/session?profile=other",
+                           json={"sdp": "offer", "session_id": "secondary-session"})
+    assert response.status_code == 200
+    call = response.json()
+    secondary = str((home / "profiles" / "other").resolve())
+    store = web_server.app.state.gateway_runner.session_ticket_store
+    ticket = store.mint(profile_id=secondary, subject="uid:native-owner", purpose="interactive")
+    # No selector: the verified grant, never the launch home, owns this socket.
+    with client.websocket_connect(f'/api/audio/voice-live/calls/{call["call_id"]}',
+                                  subprotocols=["hermes-gateway-v1", f"hermes-gateway-ticket.{ticket}"]) as ws:
+        assert ws.accepted_subprotocol == "hermes-gateway-v1"
+        ws.send_json({"type": "authenticate", "call_token": call["call_token"], "session_id": "secondary-session"})
+        assert ws.receive_json() == {"type": "lease.ready"}
+        assert calls[0].profile == secondary
     assert calls[0].stopped.wait(timeout=3)

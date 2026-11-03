@@ -129,7 +129,8 @@ def test_only_the_local_desktop_backend_opens_onboarding_by_itself(portal, root,
     assert _call("onboarding.state")["result"] == {"run": False, "eligible": False, "session_id": None, "run_id": None}
 
     (root / ".env").write_text("OPENROUTER_API_KEY=sk-or-test\n", encoding="utf-8")  # a key saved later
-    assert _call("onboarding.state")["result"]["eligible"] is True
+    assert _call("onboarding.state")["result"]["eligible"] is False  # completed installs need no readiness probe
+    assert _call("onboarding.set_run", {"run": True})["result"]["eligible"] is True
 
 
 def test_eligible_follows_the_default_profile_not_the_launch_profile(portal, root, monkeypatch):
@@ -142,7 +143,7 @@ def test_eligible_follows_the_default_profile_not_the_launch_profile(portal, roo
     as_local_desktop_backend(monkeypatch)
     install_state.mark_machine_used()
 
-    assert _call("onboarding.state")["result"]["eligible"] is True
+    assert _call("onboarding.set_run", {"run": True})["result"]["eligible"] is True
 
 
 def test_a_claim_refreshes_the_setup_record(portal, monkeypatch):

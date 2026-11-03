@@ -268,11 +268,12 @@ async function readAndStart(
   }
 }
 
-/** The due check's way out, armed like the intro's (`kickoff.ts`): `ONBOARDING_DECIDE_OFFER_MS` after
- *  the backend said ready, the boot overlay offers `release` through `$decideExit`. Returns the disarm. */
+/** The check starts only on an open socket. Its way out must remain available even if the
+ *  gateway.ready lifecycle frame was missed before the active-source listener attached. */
 function offerDecideExit(release: () => void): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
   let stopWatching = (): void => undefined
+  const startedAt = Date.now()
 
   const disarm = (): void => {
     stopWatching()
@@ -288,9 +289,7 @@ function offerDecideExit(release: () => void): () => void {
   stopWatching = $gatewayReadyAt.subscribe(readyAt => {
     clearTimeout(timer)
 
-    if (readyAt !== null) {
-      timer = setTimeout(() => $decideExit.set(takeExit), readyAt + ONBOARDING_DECIDE_OFFER_MS - Date.now())
-    }
+    timer = setTimeout(() => $decideExit.set(takeExit), (readyAt ?? startedAt) + ONBOARDING_DECIDE_OFFER_MS - Date.now())
   })
 
   return disarm

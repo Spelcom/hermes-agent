@@ -6,16 +6,22 @@ import type { PluginProfileRoute } from '@/sdk/profile-request'
 
 export function AgentVoiceCheck({ route, sessionId }: { route: PluginProfileRoute; sessionId: string }) {
   const [state, setState] = useState('')
+  const [checking, setChecking] = useState(false)
   const running = useRef<AbortController | null>(null)
-  useEffect(() => () => running.current?.abort(), [])
+  useEffect(() => () => {
+    running.current?.abort()
+    running.current = null
+  }, [])
 
   return (
     <div className="flex items-center gap-2 px-3 py-1 text-xs">
       <Button
-        disabled={Boolean(running.current)}
+        disabled={checking}
         onClick={() => {
+          if (running.current) { return }
           const controller = new AbortController()
           running.current = controller
+          setChecking(true)
           setState('Соединяюсь…')
           void checkLiveVoice(
             { connectionId: route.connectionId, profile: route.targetProfile },
@@ -33,7 +39,10 @@ export function AgentVoiceCheck({ route, sessionId }: { route: PluginProfileRout
               }
             })
             .finally(() => {
-              running.current = null
+              if (running.current === controller) {
+                running.current = null
+                setChecking(false)
+              }
             })
         }}
         size="sm"

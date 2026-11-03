@@ -25,7 +25,7 @@ export async function checkLiveVoice(owner: OwnerScope, sessionId: string, signa
 
   const session = new VoiceLiveSession(
     {
-      onClosed: () => rejectResult(new Error('Проверка голоса завершилась до получения звука и текста')),
+      onClosed: reason => rejectResult(new Error(/^Codex voice connection closed \(code \d{4}\)$/.test(reason) ? reason : 'Проверка голоса завершилась до получения звука и текста')),
       onDelegation: id => session.speak(id, 'Голосовой разговор работает.'),
       onError: () => rejectResult(new Error('Не удалось проверить голос. Проверьте вход в Codex.')),
       onSpeakingChange: speaking => {

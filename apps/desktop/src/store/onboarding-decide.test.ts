@@ -80,6 +80,22 @@ describe('the launch due check', () => {
     expect(backend.calls).toContain('onboarding.start')
   })
 
+  it('offers recovery on an open socket even when its gateway.ready lifecycle frame was missed', async () => {
+    const { intro, presence, run } = await freshStores()
+    const backend = slowBackend()
+    const decided = run.decideOnboarding(backend.request, resume, { ensureProfile })
+    await vi.advanceTimersByTimeAsync(14_999)
+    expect(intro.$decideExit.get()).toBeNull()
+    expect(presence.$onboardingDecided.get()).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(intro.$decideExit.get()).toBeTypeOf('function')
+    intro.$decideExit.get()?.()
+    expect(presence.$onboardingDecided.get()).toBe(true)
+    backend.answer({ eligible: true, run: true })
+    await decided
+    expect(backend.calls).toEqual(['onboarding.state'])
+  })
+
   it('offers Continue a budget after gateway.ready, and a late due answer after it opens nothing', async () => {
     const { intro, liveSync, presence, run } = await freshStores()
     const backend = slowBackend()
