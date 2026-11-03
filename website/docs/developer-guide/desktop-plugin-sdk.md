@@ -2096,3 +2096,44 @@ polling fallback. Otherwise verify the backend exposes the matching
 
 **Colors look wrong after a theme switch.** You hardcoded a color. Replace it with
 a `var(--ui-*)` theme variable.
+
+### Local canvas voice standby
+
+`canvasVoice` is a single renderer-wide, manually enabled listener. It starts OFF
+on every app launch and continues across plugin route unmounts until `disable()`.
+The visible statusbar control and a plugin control share the same readable
+`canvasVoice.state` (`enabled`, `listening`, `phase`, `error`). Do not infer that
+`enabled` means the microphone is currently listening: native conversation,
+regular dictation and speech playback pause standby automatically.
+
+```ts
+await sdk.canvasVoice.enable({
+  listenerRoute: exactLocalCielRoute,
+  targets: [{ id: 'ciel', route: exactLocalCielRoute }, { id: 'kai', route: exactKaiRoute }]
+})
+const unsubscribe = sdk.canvasVoice.onCommand(({ route, text, sequence }) => {
+  // Mount the exact employee; never substitute the foreground profile.
+  showConversation({ route, initialCommand: { token: `wake:${sequence}`, text } })
+})
+sdk.canvasVoice.disable()
+```
+
+Supported target IDs are `ciel`, `kai`, `ren`, `mio`, `yuki`. Only a name prefix
+(`Ciel`/`Сиэль`/`CL`, `Kai`/`Кай`, `Ren`/`Рен`, `Mio`/`Мио`, `Yuki`/`Юки`)
+authorizes a command event. Other speech is discarded without a model request or
+transcript persistence. A bare name emits an empty command; the consumer can open
+a voice conversation with a fresh explicit `voiceStartToken`. `initialCommand`
+on `AgentConversation` submits a nonempty matched suffix once after exact-owner
+hydration. Sequence numbers increase throughout the renderer lifetime, including
+OFF/ON cycles. Unsubscribe only the consumer on teardown; do not disable global
+standby merely because its canvas page unmounted.
+
+Standby verifies the native local route and configured `whisper_cpp_local`
+command before opening capture. Its bounded PCM clips use the existing capture
+engine and an owner-scoped `/api/audio/transcribe-local` request with
+`local_only: true` (older gateways fail with 404); the
+backend rejects provider changes to cloud, plugin, disabled or autodetected STT
+before dispatch. Temporary local audio files are deleted after transcription.
+OFF stops capture, discards buffered speech and fences late permission, stream
+and transcription callbacks. `pause()` returns an idempotent release function
+for additional native microphone/audio owners; it does not change manual ON/OFF.

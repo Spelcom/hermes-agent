@@ -766,6 +766,7 @@ def _cmd_attach(args: argparse.Namespace) -> int:
     """Attach a local file via the shared ``store_attachment_bytes`` path (same 25 MB cap and name
     sanitisation as the dashboard upload and agent tool)."""
     import mimetypes
+    from hermes_cli.profiles import current_profile_name
     _worker_run_id_for(args.task_id)
 
     src = Path(args.path).expanduser()
@@ -778,7 +779,7 @@ def _cmd_attach(args: argparse.Namespace) -> int:
     try:
         with kbc.connect_closing() as conn:
             att_id = kb.store_attachment_bytes(conn, args.task_id, name, data, content_type=content_type,
-                                               uploaded_by=uploaded_by)
+                                               uploaded_by=uploaded_by, actor_profile=current_profile_name())
     except kb.AttachmentTooLarge as exc:
         return _err(f"kanban: {exc}")
     print(f"Attached {name} to {args.task_id} (attachment {att_id}, {len(data)} bytes)")

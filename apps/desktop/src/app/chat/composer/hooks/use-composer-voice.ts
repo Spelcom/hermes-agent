@@ -3,6 +3,7 @@ import { computed } from 'nanostores'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useI18n } from '@/i18n'
+import { pauseBackgroundVoice } from '@/lib/canvas-voice-ownership'
 import { chatMessageText, collectUnspokenTurnSpeech, lastTextPartText } from '@/lib/chat-messages'
 import { triggerHaptic } from '@/lib/haptics'
 import {
@@ -252,6 +253,12 @@ export function useComposerVoice({
     pendingResponse: pendingTurnResponse,
     seedHistory: seedLiveHistory
   })
+
+  useEffect(() => {
+    if (voiceConversationActive) {
+      return pauseBackgroundVoice()
+    }
+  }, [voiceConversationActive])
 
   const conversation = liveEngineActive ? liveConversation : chainedConversation
 

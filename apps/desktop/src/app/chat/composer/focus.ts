@@ -151,6 +151,24 @@ const targetIsReachable = (target: ComposerTarget): boolean => {
  * voice / soft `/` agree with the keyboard path.
  */
 const resolveActive = (): ComposerTarget => {
+  const focused =
+    typeof document === 'undefined'
+      ? null
+      : document.activeElement?.closest('[data-embedded-composer]')?.closest<HTMLElement>('[data-composer-target]')
+
+  if (focused?.dataset.composerTarget && !isElementInHiddenPane(focused)) {
+    activeTarget = focused.dataset.composerTarget
+
+    return activeTarget
+  }
+
+  if (
+    typeof document !== 'undefined' &&
+    queryVisible(`[data-composer-target="${cssEscape(activeTarget)}"] [data-embedded-composer]`)
+  ) {
+    return activeTarget
+  }
+
   const owner = $floatingComposerOwner.get()?.target
 
   if (owner && (activeTarget !== 'edit' || !targetIsReachable('edit'))) {
@@ -738,7 +756,8 @@ export const focusComposerInput = (el: HTMLElement | null) => {
   // Also skip when another VISIBLE composer holds the caret — a keep-alive
   // remount must not yank typing. A hidden tab that still has DOM focus must
   // not block the pane the user just switched to.
-  const owner = $floatingComposerOwner.get()
+  const embedded = Boolean(el.closest('[data-embedded-composer]'))
+  const owner = embedded ? null : $floatingComposerOwner.get()
   const surfaceId = el.closest<HTMLElement>('[data-composer-owner]')?.dataset.composerOwner
 
   const focus = () => {
@@ -755,8 +774,9 @@ export const focusComposerInput = (el: HTMLElement | null) => {
     if (
       active instanceof HTMLElement &&
       active.dataset.slot === RICH_INPUT_SLOT &&
+      !embedded &&
       !isElementInHiddenPane(active) &&
-      (!owner || surfaceId !== owner.id)
+      (!owner || surfaceId !== owner.id || Boolean(active.closest('[data-embedded-composer]')))
     ) {
       return
     }

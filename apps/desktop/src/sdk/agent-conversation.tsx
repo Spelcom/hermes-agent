@@ -6,6 +6,8 @@ export interface AgentConversationProps {
   route: PluginProfileRoute
   /** New token only on an explicit microphone click; omission mounts text chat. */
   voiceStartToken?: string | number
+  /** One locally matched name-prefixed command, consumed once after exact-owner hydration. */
+  initialCommand?: { token: string | number; text: string }
   onClose?: () => void
   className?: string
   title?: string

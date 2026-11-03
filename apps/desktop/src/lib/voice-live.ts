@@ -1,5 +1,6 @@
 import { hermesApiAs, type OwnerScope, ownerScoped, profileScoped, type ResolvedOwner } from '@/api/client'
 import { hermesApi } from '@/hermes'
+import { pauseBackgroundVoice } from '@/lib/canvas-voice-ownership'
 
 /**
  * GPT-Live voice chat: the full-duplex voice frontend that DELEGATES to Hermes.
@@ -213,6 +214,7 @@ async function waitForIceGathering(connection: RTCPeerConnection): Promise<void>
 }
 
 export class VoiceLiveSession {
+  private releaseStandby: (() => void) | undefined
   readonly audio: HTMLAudioElement
   /** Whose (connection, profile) this session dials; null → the active scope.
    *  A Bot chat runs its GPT-Live session on the Bot's own profile, so the
@@ -281,6 +283,7 @@ export class VoiceLiveSession {
       throw new Error('GPT-Live session already started')
     }
 
+    this.releaseStandby = pauseBackgroundVoice()
     const connection = new RTCPeerConnection()
     this.peer = connection
 
@@ -296,9 +299,17 @@ export class VoiceLiveSession {
       }
     })
 
-    this.microphone = await navigator.mediaDevices.getUserMedia({
+    const microphone = await navigator.mediaDevices.getUserMedia({
       audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true }
     })
+
+    if (this.finalized) {
+      microphone.getTracks().forEach(track => track.stop())
+
+      return
+    }
+
+    this.microphone = microphone
 
     for (const track of this.microphone.getAudioTracks()) {
       connection.addTrack(track, this.microphone)
@@ -534,6 +545,8 @@ export class VoiceLiveSession {
     this.analyser?.disconnect()
     void this.audioContext?.close().catch(() => undefined)
     this.microphone?.getTracks().forEach(track => track.stop())
+    this.releaseStandby?.()
+    this.releaseStandby = undefined
     this.events?.close()
     this.peer?.close()
     this.audio.srcObject = null

@@ -83,6 +83,27 @@ def _audio_extension_for_mime(mime_type: str) -> str:
     return _AUDIO_MIME_EXTENSIONS.get(normalized, ".webm")
 
 
+def _transcribe_local_wake_recording(path: str) -> dict:
+    """Private standby audio can only reach the configured offline command.
+
+    Dispatch from one config snapshot, without provider auto-detection, cloud
+    fallback or pre-transcription plugin hooks. Normal dictation is unchanged.
+    """
+    from tools.transcription_tools import _load_stt_config
+    from tools.transcription_command import _resolve_command_stt_provider_config, _transcribe_command_stt
+    from tools.voice_mode_transcript import is_whisper_hallucination
+
+    config = _load_stt_config()
+    provider = config.get("provider")
+    command = _resolve_command_stt_provider_config("whisper_cpp_local", config)
+    if config.get("enabled") is not True or provider != "whisper_cpp_local" or command is None:
+        raise HTTPException(status_code=409, detail="Local standby requires the configured whisper_cpp_local command")
+    result = _transcribe_command_stt(path, "whisper_cpp_local", command, config)
+    if result.get("success") and is_whisper_hallucination(str(result.get("transcript") or "")):
+        return {**result, "transcript": ""}
+    return result
+
+
 @router.post("/api/audio/transcribe")
 async def transcribe_audio_upload(
     payload: AudioTranscriptionRequest, profile: Optional[str] = None
@@ -126,7 +147,8 @@ async def transcribe_audio_upload(
             # and re-listens instead of surfacing a 400 on every quiet turn.
             from tools.voice_mode import transcribe_recording
 
-            result = await _run_config_scoped(profile, lambda: transcribe_recording(temp_path))
+            transcriber = _transcribe_local_wake_recording if payload.local_only else transcribe_recording
+            result = await _run_config_scoped(profile, lambda: transcriber(temp_path))
     finally:
         if temp_path:
             _unlink_quietly(temp_path)
@@ -144,6 +166,13 @@ async def transcribe_audio_upload(
         "ok": True, "transcript": str(result.get("transcript") or "").strip(),
         "provider": result.get("provider"),
     }
+
+
+@router.post("/api/audio/transcribe-local")
+async def transcribe_local_audio_upload(payload: AudioTranscriptionRequest, profile: Optional[str] = None):
+    """Separate capability boundary: older gateways return 404 instead of ignoring local_only."""
+    local = AudioTranscriptionRequest(data_url=payload.data_url, mime_type=payload.mime_type, local_only=True)
+    return await transcribe_audio_upload(local, profile)
 
 
 @router.get("/api/audio/voice-config")

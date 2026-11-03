@@ -1,5 +1,6 @@
 import { atom } from 'nanostores'
 
+import { backgroundVoiceOwnership } from '@/lib/canvas-voice-ownership'
 import { type ClientWakeCaptureHandle, startClientWakeCapture } from '@/lib/wake-client-capture'
 import { $gateway } from '@/store/gateway'
 
@@ -44,6 +45,10 @@ export function stopClientCapture(): void {
 }
 
 async function maybeStartClientCapture(result: WakeStartResponse | null | undefined): Promise<void> {
+  if (backgroundVoiceOwnership.isReserved()) {
+    return
+  }
+
   stopClientCapture()
 
   if (!result?.started) {
@@ -57,7 +62,7 @@ async function maybeStartClientCapture(result: WakeStartResponse | null | undefi
   }
 
   try {
-    clientCapture = await startClientWakeCapture({
+    const opened = await startClientWakeCapture({
       frameLength: result.frame_length,
       request: gatewayRequester,
       // The continuous PCM chain can die after arming (dead track, stalled
@@ -78,6 +83,12 @@ async function maybeStartClientCapture(result: WakeStartResponse | null | undefi
         void gatewayRequester('wake.stop', {}).catch(() => undefined)
       }
     })
+
+    if (backgroundVoiceOwnership.isReserved()) {
+      opened.stop()
+    } else {
+      clientCapture = opened
+    }
   } catch (error) {
     const current = $wakeWord.get()
     $wakeWord.set({
@@ -266,6 +277,10 @@ export function applyWakeStopResult(result: WakeStopResponse | null | undefined)
  * hidden default.
  */
 export async function armWakeWord(request: WakeRequester = gatewayRequester): Promise<void> {
+  if (backgroundVoiceOwnership.isReserved()) {
+    return
+  }
+
   try {
     const status = await request<WakeStatusResponse>('wake.status', {
       client_capture: true,
@@ -304,6 +319,10 @@ export async function armWakeWord(request: WakeRequester = gatewayRequester): Pr
 
 /** The composer button's click handler: stop when listening, start otherwise. */
 export async function toggleWakeWord(request: WakeRequester = gatewayRequester): Promise<void> {
+  if (backgroundVoiceOwnership.isReserved()) {
+    return
+  }
+
   const state = $wakeWord.get()
 
   if (state.pending) {
@@ -357,6 +376,10 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
  * this is a passive path and must not flip config.
  */
 export async function resumeWakeAfterVoice(request: WakeRequester = gatewayRequester): Promise<void> {
+  if (backgroundVoiceOwnership.isReserved()) {
+    return
+  }
+
   try {
     await request('wake.resume', {})
   } catch {

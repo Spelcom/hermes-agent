@@ -57,6 +57,7 @@ export function FloatingComposerSurface({ children }: ComposerSurfaceProps) {
   useLayoutEffect(() => {
     host.dataset.composerOwner = id
     host.dataset.treeGroup = groupId
+    host.toggleAttribute('data-embedded-composer', Boolean(embedded))
 
     if (floating) {
       host.dataset.floatingComposerTarget = target
@@ -73,7 +74,7 @@ export function FloatingComposerSurface({ children }: ComposerSurfaceProps) {
     if (parent && host.parentElement !== parent) {
       parent.appendChild(host)
     }
-  }, [floating, groupId, host, id, target, visible])
+  }, [embedded, floating, groupId, host, id, target, visible])
 
   useLayoutEffect(() => () => host.remove(), [host])
 

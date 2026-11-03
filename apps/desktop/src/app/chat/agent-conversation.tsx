@@ -14,10 +14,12 @@ type OpenedConversation = Awaited<ReturnType<typeof openAgentConversationSession
 
 function ConversationContent({
   session,
-  voiceStartToken
+  voiceStartToken,
+  initialCommand
 }: {
   session: OpenedConversation
   voiceStartToken?: string | number
+  initialCommand?: AgentConversationProps['initialCommand']
 }) {
   const id = useId()
   const view = useMemo(() => buildTileView(session.storedSessionId, atom<string | null>(session.runtimeId)), [session])
@@ -26,6 +28,7 @@ function ConversationContent({
     <TileChat
       composerTarget={`agent-conversation:${id}`}
       embedded
+      initialCommand={initialCommand}
       ownerRoute={session.route}
       runtimeId={session.runtimeId}
       storedSessionId={session.storedSessionId}
@@ -36,7 +39,14 @@ function ConversationContent({
   )
 }
 
-function OwnedConversation({ route, voiceStartToken, onClose, title, className }: AgentConversationProps) {
+function OwnedConversation({
+  route,
+  voiceStartToken,
+  initialCommand,
+  onClose,
+  title,
+  className
+}: AgentConversationProps) {
   const { t } = useI18n()
   const [session, setSession] = useState<OpenedConversation | null>(null)
   const [error, setError] = useState('')
@@ -86,7 +96,7 @@ function OwnedConversation({ route, voiceStartToken, onClose, title, className }
           <Button onClick={() => setRetry(value => value + 1)}>{t.common.retry}</Button>
         </div>
       ) : session ? (
-        <ConversationContent session={session} voiceStartToken={voiceStartToken} />
+        <ConversationContent initialCommand={initialCommand} session={session} voiceStartToken={voiceStartToken} />
       ) : (
         <div className="p-4 text-sm" role="status">
           {t.common.loading}

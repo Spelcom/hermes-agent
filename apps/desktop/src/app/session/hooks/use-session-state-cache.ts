@@ -32,6 +32,7 @@ import {
   rekeySessionTile,
   releaseSessionTranscript
 } from '@/store/session-states'
+import { $retainedSessionViews, isSessionViewRetained } from '@/store/session-view-retention'
 
 import type { ClientSessionState } from '../../types'
 import { SessionStateCache } from '../session-state-cache'
@@ -87,6 +88,7 @@ export function useSessionStateCache({
 }: SessionStateCacheOptions) {
   const busy = useStore(PRIMARY_SESSION_VIEW.$busy)
   const sessionTiles = useStore($sessionTiles)
+  const retainedViews = useStore($retainedSessionViews)
   // Parking is driven by pane-lifecycle when focus moves off a tile (onto a
   // terminal pane, say). That changes neither the active/selected ids nor the
   // tile list, so without subscribing here an idle window would keep the parked
@@ -127,6 +129,7 @@ export function useSessionStateCache({
       isReferenced: (runtimeId, state) =>
         runtimeId === activeSessionIdRef.current ||
         state.storedSessionId === selectedStoredSessionIdRef.current ||
+        isSessionViewRetained(runtimeId, state.storedSessionId) ||
         $sessionTiles
           .get()
           .some(
@@ -453,7 +456,7 @@ export function useSessionStateCache({
 
   useEffect(() => {
     sessionStateCache.prune()
-  }, [activeSessionId, parkedTileStoredIds, selectedStoredSessionId, sessionStateCache, sessionTiles])
+  }, [activeSessionId, parkedTileStoredIds, retainedViews, selectedStoredSessionId, sessionStateCache, sessionTiles])
 
   const getRuntimeIdForStoredSession = useCallback(
     (storedSessionId: string): string | null => {

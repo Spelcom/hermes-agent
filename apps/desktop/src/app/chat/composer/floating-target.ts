@@ -28,9 +28,12 @@ const inInlineEdit = (el: Element | null) => Boolean(el?.closest(EDIT_COMPOSER_R
  * own focus, exactly like the inline edit: moving the pointer must not hand the
  * caret back to the pane composer, and a refused redirect must leave that
  * element's focusin visible to React. Composer editors are excluded, so
- * hover-switching between panes keeps behaving as before (#114245). */
+ * hover-switching between panes keeps behaving as before (#114245). Embedded
+ * docked editors own their focus independently of the layout recipient. */
 const keepsOwnFocus = (el: Element | null) =>
-  inInlineEdit(el) || (isEditableTarget(el) && !el?.closest('[data-slot="composer-rich-input"]'))
+  Boolean(el?.closest('[data-embedded-composer]')) ||
+  inInlineEdit(el) ||
+  (isEditableTarget(el) && !el?.closest('[data-slot="composer-rich-input"]'))
 
 /** Focus inside an open floating layer — a popover, menu, listbox or dialog
  * portaled over the transcript — is the user's own as well. Radix moves focus
@@ -78,7 +81,12 @@ function selectionOutsideComposer(): boolean {
 function focusSelectedComposer() {
   const owner = $floatingComposerOwner.get()
 
-  if (!owner || selectionOutsideComposer() || inFloatingLayer(document.activeElement)) {
+  if (
+    !owner ||
+    selectionOutsideComposer() ||
+    inFloatingLayer(document.activeElement) ||
+    keepsOwnFocus(document.activeElement)
+  ) {
     return
   }
 
@@ -119,6 +127,10 @@ function selectSurface(id: string) {
 }
 
 function surfaceAt(target: Element): string | undefined {
+  if (target.closest('[data-embedded-composer]')) {
+    return undefined
+  }
+
   const host = target.closest<HTMLElement>('[data-composer-owner]')
 
   if (host) {
@@ -191,6 +203,10 @@ function trackFocus(event: FocusEvent) {
   const target = event.target instanceof Element ? event.target : null
 
   if (!target) {
+    return
+  }
+
+  if (target.closest('[data-embedded-composer]')) {
     return
   }
 

@@ -8,6 +8,7 @@ import { ProfileSwitcher } from '@/app/chat/sidebar/profile-dropdown-switcher'
 import type { CommandCenterSection } from '@/app/command-center'
 import { toggleTerminalPane } from '@/app/right-sidebar/terminal/reveal-focus'
 import { useApprovalModeStatusbarItem } from '@/app/shell/approval-mode-menu'
+import { canvasVoiceStatusbarItem } from '@/app/shell/canvas-voice-statusbar'
 import { ContextMeterDetail, ContextUsagePanel } from '@/app/shell/context-usage-panel'
 import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
 import { useChangeWorkspaceItem } from '@/app/shell/hooks/use-change-workspace'
@@ -753,7 +754,7 @@ export function useStatusbarItems({
   )
 
   const statusbarItems = useMemo(
-    () => [...extraRightItems, ...coreRightStatusbarItems],
+    () => [canvasVoiceStatusbarItem, ...extraRightItems, ...coreRightStatusbarItems],
     [coreRightStatusbarItems, extraRightItems]
   )
 

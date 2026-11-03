@@ -16,6 +16,7 @@ import {
   publishSessionState,
   recordSessionEventScope
 } from '@/store/session-states'
+import { retainSessionView } from '@/store/session-view-retention'
 import { makeSessionInfo } from '@/test/session-info'
 
 /**
@@ -207,4 +208,18 @@ describe('closeSessionTile eviction', () => {
     expect($sessionStates.get()['rt-1']?.messages).toEqual([])
     expect($sessionStates.get()['rt-1']).toMatchObject({ storedSessionId: 'stored-1', busy: false })
   })
+})
+
+it('retains an embedded chat through settle and authoritative refresh, then releases on close', () => {
+  const release = retainSessionView('canonical-embedded', 'rt-embedded')
+  publishSessionState('rt-embedded', state('canonical-embedded', { busy: true }))
+  publishSessionState('rt-embedded', state('canonical-embedded', { busy: false }))
+  expect($sessionStates.get()['rt-embedded'].messages).toHaveLength(1)
+  // A refreshed/new stored leaf must not orphan the still-mounted runtime.
+  publishSessionState('rt-embedded', state('canonical-new-leaf', { busy: false }))
+  expect($sessionStates.get()['rt-embedded'].messages).toHaveLength(1)
+  release()
+  release()
+  publishSessionState('rt-embedded', state('canonical-new-leaf', { busy: false }))
+  expect($sessionStates.get()['rt-embedded'].messages).toEqual([])
 })

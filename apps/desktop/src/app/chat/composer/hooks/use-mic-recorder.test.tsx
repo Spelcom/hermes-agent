@@ -1,6 +1,8 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { backgroundVoiceOwnership } from '@/lib/canvas-voice-ownership'
+
 import { type MicRecorderErrorCopy, useMicRecorder } from './use-mic-recorder'
 
 // The level meter behind continuous voice mode is an AudioContext on the
@@ -248,4 +250,27 @@ describe('useMicRecorder level meter', () => {
     expect(onMeterFailure).not.toHaveBeenCalled()
     expect(recording).toMatchObject({ meterFailed: false })
   })
+})
+
+it('takes standby ownership before permission and releases it once on close, including late permission', async () => {
+  const release = vi.fn()
+  const pause = vi.fn(() => release)
+  backgroundVoiceOwnership.register(pause)
+  const permission = deferred()
+  vi.stubGlobal('hermesDesktop', { requestMicrophoneAccess: () => permission.promise.then(() => true) })
+  const hook = renderHook(() => useMicRecorder(copy))
+  let opening!: Promise<void>
+  act(() => {
+    opening = hook.result.current.handle.start()
+  })
+  expect(pause).toHaveBeenCalledOnce()
+  expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled()
+  hook.unmount()
+  expect(release).toHaveBeenCalledOnce()
+  await act(async () => {
+    permission.resolve()
+    await opening
+  })
+  expect(release).toHaveBeenCalledOnce()
+  backgroundVoiceOwnership.register(() => () => undefined)
 })

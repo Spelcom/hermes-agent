@@ -15,6 +15,8 @@ vi.mock('@/store/session-states', () => ({ sessionTileDelegate: () => ({ resumeT
 vi.mock('@/lib/voice-live', () => ({ fetchVoiceLiveStatus: mocks.voice }))
 vi.mock('@/plugins/hermes-bots/canonical-chat', () => ({ resolveBotCanonicalSession: mocks.canonical }))
 
+import { isSessionViewRetained } from '@/store/session-view-retention'
+
 import { openAgentConversationSession } from './agent-conversation-session'
 
 const route = { connectionId: 'office', mode: 'remote' as const, profile: 'alias', targetProfile: 'developer' }
@@ -34,6 +36,7 @@ it('captures the exact owner before awaits and binds native history without any 
   const session = await opening
   expect(mocks.retain).toHaveBeenCalledWith('office', 'alias', { spawnPriority: 'foreground' })
   expect(mocks.canonical).toHaveBeenCalledWith(expect.objectContaining({ name: 'alias', route }))
+  expect(isSessionViewRetained('runtime', 'canonical-tip')).toBe(true)
   expect(mocks.resume).toHaveBeenCalledWith('canonical-tip', { authoritativeSnapshot: true, ownerRoute: route })
   expect(mocks.hint.mock.calls).toEqual([
     ['canonical-tip', route],
@@ -43,6 +46,7 @@ it('captures the exact owner before awaits and binds native history without any 
   expect(Object.isFrozen(session.route)).toBe(true)
   expect(mocks.release).not.toHaveBeenCalled()
   session.release()
+  expect(isSessionViewRetained('runtime', 'canonical-tip')).toBe(false)
   expect(mocks.release).toHaveBeenCalledOnce()
 })
 
@@ -73,4 +77,17 @@ it('refuses an incomplete owner and releases the exact route when canonical reso
   await expect(openAgentConversationSession(route, new AbortController().signal)).rejects.toThrow('offline')
   expect(mocks.release).toHaveBeenCalledOnce()
   expect(mocks.resume).not.toHaveBeenCalled()
+})
+
+it('holds before resume can publish and releases both leases when close races hydration', async () => {
+  const controller = new AbortController()
+  mocks.resume.mockImplementationOnce(async () => {
+    expect(isSessionViewRetained('not-bound-yet', 'canonical-tip')).toBe(true)
+    controller.abort()
+
+    return 'runtime'
+  })
+  await expect(openAgentConversationSession(route, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
+  expect(isSessionViewRetained('runtime', 'canonical-tip')).toBe(false)
+  expect(mocks.release).toHaveBeenCalledOnce()
 })

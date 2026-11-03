@@ -1,4 +1,4 @@
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useLayoutEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -21,7 +21,7 @@ import { $connection } from '@/store/session'
 
 import { useComposerActions } from '../../hooks/use-composer-actions'
 import type { QueueEditState } from '../composer-utils'
-import { type ComposerTarget, getActiveComposer, markActiveComposer } from '../focus'
+import { type ComposerTarget, getActiveComposer, markActiveComposer, requestComposerInsert } from '../focus'
 import { caretOffsetInEditor, composerPlainText } from '../rich-editor'
 import { type ComposerScope, ComposerScopeProvider, MAIN_COMPOSER_SCOPE } from '../scope'
 
@@ -795,4 +795,62 @@ describe('useComposerDraft — a hidden keep-alive tab never auto-focuses its co
     expectForegroundSelectionPreserved(foreground)
     foreground.editor.remove()
   })
+})
+
+it('keeps native typing and active-target insert inside the embedded employee draft across refresh', async () => {
+  const target = 'agent-conversation:employee-kai'
+  const scope: ComposerScope = { ...MAIN_COMPOSER_SCOPE, embedded: true, target }
+  let latest!: ReturnType<typeof useComposerDraft>
+
+  function EmployeeEditor({ revision }: { revision: number }) {
+    latest = useComposerDraft({
+      activeQueueSessionKey: 'canonical-kai',
+      focusKey: null,
+      inputDisabled: false,
+      queueEditRef: { current: null },
+      sessionId: 'runtime-kai'
+    })
+
+    return (
+      <div data-chat-surface="" data-composer-target={target} data-revision={revision}>
+        <div
+          aria-multiline="true"
+          contentEditable
+          data-slot="composer-rich-input"
+          onFocus={() => markActiveComposer(target)}
+          onInput={latest.syncDraftFromEditor}
+          ref={latest.editorRef}
+          role="textbox"
+          tabIndex={0}
+        />
+      </div>
+    )
+  }
+
+  const view = render(
+    <ComposerScopeProvider value={scope}>
+      <EmployeeEditor revision={0} />
+    </ComposerScopeProvider>
+  )
+
+  const editor = latest.editorRef.current!
+  act(() => latest.focusInput())
+  expect(window.document.activeElement).toBe(editor)
+  expect(getActiveComposer()).toBe(target)
+  editor.textContent = 'Продолжай существующую t_1f4ad70b'
+  fireEvent.input(editor)
+  expect(latest.draftRef.current).toBe('Продолжай существующую t_1f4ad70b')
+  requestComposerInsert('проверь файл', { target: 'active' })
+  await waitFor(() => expect(composerPlainText(editor)).toContain('проверь файл'))
+  view.rerender(
+    <ComposerScopeProvider value={scope}>
+      <EmployeeEditor revision={1} />
+    </ComposerScopeProvider>
+  )
+  expect(latest.editorRef.current).toBe(editor)
+  expect(composerPlainText(editor)).toContain('t_1f4ad70b')
+  expect(getActiveComposer()).toBe(target)
+  view.unmount()
+  clearSessionDraft('canonical-kai')
+  markActiveComposer('main')
 })

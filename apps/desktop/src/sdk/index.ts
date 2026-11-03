@@ -1919,6 +1919,8 @@ export {
   type TranscriptDirectiveProps
 } from '@/lib/transcript-directives'
 export { cn } from '@/lib/utils'
+export { canvasVoice } from '@/store/canvas-voice'
+export type { CanvasVoiceCommand, CanvasVoiceOptions, CanvasVoiceState } from '@/store/canvas-voice'
 export { gatewayActivationEpoch } from '@/store/gateway'
 /** THE unread store behind `SessionStatusDot`'s emerald dot. A plugin that
  *  learns out-of-band that a session produced something the user hasn't seen
@@ -2005,6 +2007,7 @@ export { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
  *  renderer for rasterization; React component for live rendering. */
 export { blobatar as blobatarSvg } from 'blobatar/blob'
 export { Blobatar } from 'blobatar/react'
+
 /** Plugin-local reactive state (share between a trigger and its panel, poll
  *  loops, cross-component signals) — the same primitive `host.state` uses. */
 export { atom, computed } from 'nanostores'

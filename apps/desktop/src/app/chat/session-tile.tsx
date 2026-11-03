@@ -19,6 +19,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { atom, computed, type ReadableAtom } from 'nanostores'
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 
+import { useInitialAgentCommand } from '@/app/chat/composer/hooks/use-initial-agent-command'
 import { useGatewayRequest } from '@/app/gateway/hooks/use-gateway-request'
 import { useModelControls } from '@/app/session/hooks/use-model-controls'
 import { blobToDataUrl } from '@/app/session/hooks/use-prompt-actions/utils'
@@ -249,6 +250,7 @@ export function TileChat({
   ownerRoute: pinnedOwner,
   embedded,
   voiceStartToken,
+  initialCommand,
   voiceLiveStatus,
   composerTarget
 }: {
@@ -258,6 +260,7 @@ export function TileChat({
   ownerRoute?: SessionOwnerRoute
   embedded?: boolean
   voiceStartToken?: string | number
+  initialCommand?: { token: string | number; text: string }
   voiceLiveStatus?: VoiceLiveStatus | null
   composerTarget?: string
 }) {
@@ -332,6 +335,9 @@ export function TileChat({
   // follows foreground focus and can point at another backend during restore or
   // reconnect, which turns a recoverable stale runtime into "session not found".
   const actions = useSessionTileActions({ requestGateway: requestTileGateway, runtimeId, scope, storedSessionId })
+
+  const commandBusy = useStore(view.$busy)
+  useInitialAgentCommand(initialCommand, commandBusy, actions.submitText)
 
   // The same attach/pick/paste/drop pipeline the primary composer uses,
   // pointed at this tile's chips + session.

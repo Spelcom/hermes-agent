@@ -4,6 +4,7 @@ import type { ClientSessionState } from '@/app/types'
 import type { ChatMessage } from '@/lib/chat-messages'
 import { createClientSessionState } from '@/lib/chat-runtime'
 import { $sessionStates, $sessionTiles, releaseSessionTranscript } from '@/store/session-states'
+import { isSessionViewRetained, retainSessionView } from '@/store/session-view-retention'
 
 import { SessionStateCache } from './session-state-cache'
 
@@ -211,4 +212,27 @@ describe('SessionStateCache', () => {
       expect(cache.get('working')).toBe(working)
     })
   })
+})
+
+it('keeps a mounted embedded transcript through LRU prune and makes it evictable again on close', () => {
+  const release = retainSessionView('stored-embedded', 'runtime-embedded')
+  const evicted: string[] = []
+
+  const cache = new SessionStateCache(
+    {
+      isReferenced: (runtimeId, value) => isSessionViewRetained(runtimeId, value.storedSessionId),
+      onEvict: runtimeId => {
+        evicted.push(runtimeId)
+      }
+    },
+    { maxCount: 0, maxBytes: 0 }
+  )
+
+  cache.set('runtime-embedded', settled('stored-embedded'))
+  cache.prune()
+  expect(cache.get('runtime-embedded')?.messages).toHaveLength(2)
+  release()
+  cache.prune()
+  expect(cache.has('runtime-embedded')).toBe(false)
+  expect(evicted).toEqual(['runtime-embedded'])
 })

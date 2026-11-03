@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { pauseBackgroundVoice } from '@/lib/canvas-voice-ownership'
 import { closeMeterContext, meterContextsClosed } from '@/lib/mic-meter-context'
 
 type BrowserAudioContext = typeof AudioContext
@@ -101,6 +102,7 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
   const stopResolverRef = useRef<((recording: MicRecording | null) => void) | null>(null)
   const openingRef = useRef<Promise<void> | null>(null)
   const generationRef = useRef(0)
+  const releaseStandbyRef = useRef<(() => void) | undefined>(undefined)
 
   const cleanup = () => {
     generationRef.current += 1
@@ -121,6 +123,8 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
     streamRef.current?.getTracks().forEach(track => track.stop())
     streamRef.current = null
     recorderRef.current = null
+    releaseStandbyRef.current?.()
+    releaseStandbyRef.current = undefined
     setLevel(0)
     setRecording(false)
     silenceTriggeredRef.current = false
@@ -388,7 +392,18 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
       return openingRef.current
     }
 
+    const release = pauseBackgroundVoice()
+    releaseStandbyRef.current = release
+
     const pending = open(options, generationRef.current).finally(() => {
+      if (!recorderRef.current) {
+        release()
+
+        if (releaseStandbyRef.current === release) {
+          releaseStandbyRef.current = undefined
+        }
+      }
+
       if (openingRef.current === pending) {
         openingRef.current = null
       }

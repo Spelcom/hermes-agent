@@ -1172,6 +1172,7 @@ export function ChatBar({
       <div
         aria-disabled={inputDisabled ? true : undefined}
         aria-label={t.composer.message}
+        aria-multiline="true"
         autoCapitalize="off"
         // Chromium's macOS text-replacement path shares the autocorrect gate.
         // Keeping spellcheck off below still excludes smart quotes and dashes.
@@ -1241,6 +1242,7 @@ export function ChatBar({
         role="textbox"
         spellCheck={false}
         suppressContentEditableWarning
+        tabIndex={0}
       />
       <ComposerDirectiveActions editorRef={editorRef} />
       {/* assistant-ui requires ComposerPrimitive.Input somewhere in the tree
