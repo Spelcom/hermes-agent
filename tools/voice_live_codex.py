@@ -35,6 +35,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Callable, Mapping
@@ -374,8 +375,13 @@ async def negotiate_codex_call(
             )
         effective = (await server.request("config/read", {}) or {}).get("config")
         servers = effective.get("mcp_servers") if isinstance(effective, Mapping) else None
+        # App-server config override keys are dotted paths, not TOML source.
+        # Quoting a component creates a new literal name with no transport.
+        # Refuse ambiguous names rather than leave any MCP server enabled.
+        if any(not re.fullmatch(r"[A-Za-z0-9_-]+", name) for name in (servers or {})):
+            raise CodexLiveError("Codex voice cannot safely isolate an MCP server with a nonstandard name")
         mcp_off = {
-            f"mcp_servers.{json.dumps(name)}.enabled": False
+            f"mcp_servers.{name}.enabled": False
             for name in (servers if isinstance(servers, Mapping) else {})
         }
         thread_params = {

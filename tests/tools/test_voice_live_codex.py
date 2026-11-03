@@ -28,7 +28,7 @@ class FakeServer:
         if method == "account/read":
             return {"account": {"type": self.account_type}}
         if method == "config/read":
-            return {"config": {"mcp_servers": {"personal.with.dot": {"secret": "must-not-leak"}}}}
+            return {"config": {"mcp_servers": {"personal-server": {"secret": "must-not-leak"}}}}
         if method == "thread/start":
             return {"thread": {"id": "thread-native"}}
         if method == "thread/realtime/start":
@@ -57,7 +57,7 @@ async def test_native_negotiation_fences_thread_and_keeps_sdp_exact():
     assert thread["environments"] == thread["dynamicTools"] == thread["runtimeWorkspaceRoots"] == []
     assert thread["modelProvider"] == "openai"
     assert thread["model"] == "gpt-6-luna"
-    assert thread["config"]['mcp_servers."personal.with.dot".enabled'] is False
+    assert thread["config"]['mcp_servers.personal-server.enabled'] is False
     assert thread["developerInstructions"] == codex.SKIP_INSTRUCTIONS
     realtime = requests["thread/realtime/start"]
     assert realtime["transport"] == {"type": "webrtc", "sdp": "offer\r\n"}
@@ -234,3 +234,20 @@ async def test_cli_spawn_uses_official_transport_and_fenced_environment(tmp_path
     finally:
         await server.close()
     assert not workdir.exists()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_mcp_override_path_refuses_before_thread_start():
+    server = FakeServer()
+    original = server.request
+
+    async def request(method, params, **kwargs):
+        if method == "config/read":
+            return {"config": {"mcp_servers": {"unsafe.server": {"enabled": True}}}}
+        return await original(method, params, **kwargs)
+
+    server.request = request
+    with pytest.raises(codex.CodexLiveError, match="cannot safely isolate"):
+        await codex.negotiate_codex_call("offer", "persona", "marin", server=server)
+    assert server.closed
+    assert not any(method == "thread/start" for method, params in server.requests)
