@@ -171,7 +171,10 @@ function VoiceControls({
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2 p-2">
-      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" role="status">
+      <span
+        className={active || !ready ? 'min-w-0 flex-1 truncate text-xs text-muted-foreground' : 'sr-only'}
+        role="status"
+      >
         {ready ? label : session.voiceLiveStatus?.reason || t.notifications.voice.unavailable}
       </span>
       {!active && (
