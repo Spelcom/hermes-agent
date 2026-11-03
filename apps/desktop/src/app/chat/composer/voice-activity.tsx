@@ -9,6 +9,7 @@ import { stopVoicePlayback } from '@/lib/voice-playback'
 import { $voicePlayback } from '@/store/voice-playback'
 
 import type { VoiceActivityState } from './types'
+import { VoiceLiveCaptions, type VoiceLiveCaptionsProps } from './voice-live-captions'
 
 type BrowserAudioContext = typeof AudioContext
 
@@ -255,5 +256,16 @@ export function VoicePlaybackActivity() {
         Stop
       </Button>
     </div>
+  )
+}
+
+
+/** Playback remains visible outside live conversations; captions share the full-width voice area. */
+export function ComposerVoiceActivity(props: VoiceLiveCaptionsProps) {
+  return (
+    <>
+      <VoicePlaybackActivity />
+      <VoiceLiveCaptions {...props} />
+    </>
   )
 }

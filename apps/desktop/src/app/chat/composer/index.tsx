@@ -117,7 +117,7 @@ import {
   resolveExactLinkPaste,
   selectionLinkLabel
 } from './url-refs'
-import { VoiceActivity, VoicePlaybackActivity } from './voice-activity'
+import { ComposerVoiceActivity, VoiceActivity } from './voice-activity'
 
 function composerBusyRequest(
   request: GatewayRequester | undefined,
@@ -1499,7 +1499,7 @@ export function ChatBar({
                     readLiveText={syncDraftFromEditor}
                   />
                   <VoiceActivity state={voiceActivityState} />
-                  <VoicePlaybackActivity />
+                  <ComposerVoiceActivity active={conversationControls.active} transcript={conversationControls.transcript} />
                   {queueEdit && editingQueuedPrompt && <QueuedEditBanner onExit={exitQueuedEdit} />}
                   {attachments.length > 0 && <AttachmentList attachments={attachments} onRemove={onRemoveAttachment} />}
                   <div

@@ -18,7 +18,6 @@ import { ReasoningPill } from './reasoning-pill'
 import { StartVoiceButton } from './start-voice-button'
 import type { ChatBarState, VoiceStatus } from './types'
 import { VoiceFan } from './voice-fan'
-import { VoiceLiveCaptions } from './voice-live-captions'
 import { VoiceMenu } from './voice-menu'
 
 // Re-exported: `context-menu.tsx` and other row neighbours have always reached
@@ -29,7 +28,6 @@ interface ConversationProps {
   active: boolean
   connecting?: boolean
   live?: boolean
-  transcript?: Array<{ speaker: 'user' | 'assistant'; text: string }>
   level: number
   muted: boolean
   status: ConversationStatus
@@ -84,12 +82,7 @@ export function ComposerControls({
   const hudMode = useStore($hudMode)
 
   if (conversation.active) {
-    return (
-      <>
-        <VoiceLiveCaptions active={conversation.active} transcript={conversation.transcript} />
-        <ConversationPill {...conversation} disabled={disabled} />
-      </>
-    )
+    return <ConversationPill {...conversation} disabled={disabled} />
   }
 
   const showVoicePrimary = !busy && !hasComposerPayload
@@ -331,7 +324,7 @@ function ConversationPill({
           <Codicon name={muted ? 'mic-off' : 'mic'} size="1rem" />
         </Button>
       </Tip>
-      {listening && (
+      {listening && !live && (
         <Button
           aria-label={c.stopListening}
           className="h-(--composer-control-size) shrink-0 gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"

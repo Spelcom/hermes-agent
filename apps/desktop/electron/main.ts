@@ -3,6 +3,7 @@ import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import type { GatewayEndpoint } from './local-gateway'
 import { configurePythonGatewayTicketClient, createLocalGatewayDials, createStaleGatewayRestarter, ensureLocalGateway, gatewayOwnerProfile, localGatewayDial, nativeGatewayHttpHeaders, redialLocalGateway, runGatewayEnsure, runGatewayOwnerRestart } from './local-gateway'
 import { closeGatewayTicketBridges, createGatewayTicketResolver } from './local-gateway-python'
+import { requestNativeMicrophoneAccess } from './microphone-access'
 import { registerNativeSocketRoutes } from './native-socket-routes'
 const localGatewayDials = createLocalGatewayDials()
 configurePythonGatewayTicketClient(createGatewayTicketResolver(
@@ -15680,13 +15681,7 @@ app.on('web-contents-created', (_event, contents) => {
   contents.once('destroyed', () => f12ShortcutActiveWindows.delete(contents.id))
 })
 
-ipcMain.handle('hermes:requestMicrophoneAccess', async () => {
-  if (!IS_MAC || typeof systemPreferences.askForMediaAccess !== 'function') {
-    return true
-  }
-
-  return systemPreferences.askForMediaAccess('microphone')
-})
+ipcMain.handle('hermes:requestMicrophoneAccess', () => requestNativeMicrophoneAccess(IS_MAC, systemPreferences))
 
 // read_window_below tool: which OS window is directly underneath this one.
 // Metadata only (app, title, bounds) — never pixels. On macOS, other apps'

@@ -1,22 +1,21 @@
 import { cn } from '@/lib/utils'
 
-export function VoiceLiveCaptions({
-  active,
-  transcript
-}: {
+export interface VoiceLiveCaptionsProps {
   active: boolean
   transcript?: Array<{ speaker: 'user' | 'assistant'; text: string }>
-}) {
+}
+
+export function VoiceLiveCaptions({ active, transcript }: VoiceLiveCaptionsProps) {
   if (!active || !transcript?.length) {
     return null
   }
 
   return (
-    <div aria-live="polite" className="max-h-48 min-w-0 flex-1 overflow-y-auto px-2 text-sm">
+    <div aria-live="polite" className="max-h-40 w-full min-w-0 shrink-0 space-y-2 overflow-y-auto py-1 text-left text-sm [overflow-wrap:anywhere]">
       {transcript.slice(-4).map((item, index) => (
         <p
           className={cn(
-            'mb-2 whitespace-pre-wrap break-words',
+            'whitespace-pre-wrap break-words',
             item.speaker === 'user' ? 'text-muted-foreground' : 'text-foreground'
           )}
           key={index}

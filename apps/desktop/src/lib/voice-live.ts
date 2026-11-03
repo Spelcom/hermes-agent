@@ -67,7 +67,14 @@ const CLOSE_TIMEOUT_MS = 15_000
 const ICE_GATHER_TIMEOUT_MS = 10_000
 // Vendor cap: 500 tokens per append. ~4 chars/token, keep headroom.
 const APPEND_CHAR_LIMIT = 1_400
+
 // How much conversation the backend receives per delegation.
+const STARTUP_FAILURE_MESSAGE = {
+  permission: 'Система не ответила на запрос доступа к микрофону за 60 секунд. Проверьте настройки микрофона и повторите.',
+  capture: 'Запрос записи с микрофона не завершился за 60 секунд. Проверьте выбранный микрофон и доступ к нему.',
+  voice: 'Не удалось соединиться с голосом за 60 секунд. Попробуйте ещё раз.'
+}
+
 const CONTEXT_WINDOW_MS = 5 * 60_000
 const CONTEXT_MAX_FRAGMENTS = 80
 
@@ -224,7 +231,7 @@ export class VoiceLiveSession {
   private closeTimer: null | number = null
   private finalized = false
   private started = false
-  private startupStage: 'microphone' | 'voice' = 'microphone'
+  private startupStage: 'permission' | 'capture' | 'voice' = 'permission'
   private eventCounter = 0
   private readonly transcript = new LiveTranscriptAccumulator()
   private readonly delegations = new Set<string>()
@@ -285,9 +292,7 @@ export class VoiceLiveSession {
   async start(history: LiveHistoryMessage[], ownerSessionId?: string | null, options: { microphone?: boolean } = {}): Promise<void> {
     await withTimeout(this.openConnection(history, ownerSessionId, options), 60_000,
       'Не удалось соединиться с голосом за 60 секунд. Попробуйте ещё раз.', error => {
-        if (this.startupStage === 'microphone') {
-          error.message = 'Микрофон не ответил за 60 секунд. Проверьте разрешение на микрофон и попробуйте ещё раз.'
-        }
+        error.message = STARTUP_FAILURE_MESSAGE[this.startupStage]
 
         this.finish('close_requested', null)
       })
@@ -400,11 +405,14 @@ export class VoiceLiveSession {
   }
 
   private async openMicrophone(connection: RTCPeerConnection): Promise<void> {
+    this.startupStage = 'permission'
     const permitted = await window.hermesDesktop?.requestMicrophoneAccess?.()
 
     if (this.finalized) { return }
 
     if (permitted === false) { throw new DOMException('Microphone access denied', 'NotAllowedError') }
+
+    this.startupStage = 'capture'
 
     const microphone = await navigator.mediaDevices.getUserMedia({
       audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true }

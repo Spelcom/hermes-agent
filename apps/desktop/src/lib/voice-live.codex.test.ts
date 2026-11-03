@@ -185,6 +185,18 @@ describe('native Codex live conversation', () => {
     expect(api).not.toHaveBeenCalled()
   })
 
+  it('distinguishes a pending native permission response from a pending browser capture', async () => {
+    vi.useFakeTimers()
+    const { requestMicrophoneAccess, getUserMedia, api } = setup()
+    requestMicrophoneAccess.mockImplementationOnce(() => new Promise(() => undefined))
+    const session = new VoiceLiveSession({ onDelegation: vi.fn(), onClosed: vi.fn(), onError: vi.fn() }, { connectionId: 'office', profile: 'worker' })
+    const failed = expect(session.start([], 'runtime-owner')).rejects.toThrow('Система не ответила на запрос доступа к микрофону за 60 секунд')
+    await vi.advanceTimersByTimeAsync(60_000)
+    await failed
+    expect(getUserMedia).not.toHaveBeenCalled()
+    expect(api).not.toHaveBeenCalled()
+  })
+
   it('bounds a pending microphone request and stops a late track without creating a broker call', async () => {
     vi.useFakeTimers()
     const { getUserMedia, api, track } = setup()
@@ -192,7 +204,7 @@ describe('native Codex live conversation', () => {
     getUserMedia.mockImplementationOnce(() => new Promise(resolve => { permit = resolve }))
     const session = new VoiceLiveSession({ onDelegation: vi.fn(), onClosed: vi.fn(), onError: vi.fn() }, { connectionId: 'office', profile: 'worker' })
     const pending = session.start([], 'runtime-owner')
-    const failed = expect(pending).rejects.toThrow('Микрофон не ответил за 60 секунд')
+    const failed = expect(pending).rejects.toThrow('Запрос записи с микрофона не завершился за 60 секунд')
     await vi.advanceTimersByTimeAsync(60_000)
     await failed
     permit({ getAudioTracks: () => [track], getTracks: () => [track] })
