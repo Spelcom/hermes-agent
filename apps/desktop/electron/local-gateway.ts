@@ -311,12 +311,12 @@ export function localGatewayDial<T extends { baseUrl: string; gatewayEndpoint?: 
   })
 }
 
-function dialOf(url: string): { nonce: string; origin: string; pathname: string } | null {
+function dialOf(url: string): { nonce: string; origin: string; pathname: string; profile: string | null } | null {
   try {
     const parsed = new URL(url)
     const nonce = parsed.searchParams.get('native_dial')
 
-    return nonce ? { nonce, origin: parsed.origin, pathname: parsed.pathname } : null
+    return nonce ? { nonce, origin: parsed.origin, pathname: parsed.pathname, profile: parsed.searchParams.get('profile') } : null
   } catch {
     return null
   }
@@ -327,9 +327,9 @@ function dialOf(url: string): { nonce: string; origin: string; pathname: string 
 // A plugin socket's native-http grant never enters a URL at all: main attaches
 // it as the header its REST twin sends, to that one dial only.
 export function createLocalGatewayDials() {
-  const pending = new Map<string, { ticket: string; webContentsId: number; expires: number; origin: string; pathname: string; header: boolean }>()
+  const pending = new Map<string, { ticket: string; webContentsId: number; expires: number; origin: string; pathname: string; header: boolean; strictOrigin: boolean; profile?: string | null }>()
 
-  const reserve = (url: URL, ticket: string, webContentsId: number, header: boolean) => {
+  const reserve = (url: URL, ticket: string, webContentsId: number, header: boolean, strictOrigin = header, profile?: string | null) => {
     for (const [key, value] of pending) {if (value.expires <= Date.now()) {pending.delete(key)}}
 
     if (pending.size >= 100) {throw new Error('Too many pending gateway dials')}
@@ -338,7 +338,7 @@ export function createLocalGatewayDials() {
     // A header grant is the exception: main attaches it, so it is bound to its origin.
     const nonce = crypto.randomUUID()
     url.searchParams.set('native_dial', nonce)
-    pending.set(nonce, { ticket, webContentsId, expires: Date.now() + 25_000, origin: url.origin, pathname: url.pathname, header })
+    pending.set(nonce, { ticket, webContentsId, expires: Date.now() + 25_000, origin: url.origin, pathname: url.pathname, header, strictOrigin, profile })
 
     return url.toString()
   }
@@ -346,6 +346,15 @@ export function createLocalGatewayDials() {
   return {
     prepare(origin: string, ticket: string, webContentsId: number) {
       return `${reserve(new URL(`${origin.replace(/^http/, 'ws')}/api/ws`), ticket, webContentsId, false)}&ticket=${encodeURIComponent(ticket)}`
+    },
+    /** Voice calls keep an exact origin, path, window and profile reservation. */
+    prepareVoiceCall(origin: string, callId: string, ticket: string, webContentsId: number, profile: string) {
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(callId)) { throw new Error('Invalid voice call identity') }
+      const url = new URL(`/api/audio/voice-live/calls/${callId}`, origin.replace(/^http/, 'ws'))
+
+      if (profile) { url.searchParams.set('profile', profile) }
+
+      return `${reserve(url, ticket, webContentsId, false, true, url.searchParams.get('profile'))}&ticket=${encodeURIComponent(ticket)}`
     },
     /** `path`: an `/api/plugins/<id>/...` path (query allowed) the caller already validated. */
     preparePlugin(origin: string, path: string, ticket: string, webContentsId: number) {
@@ -356,7 +365,8 @@ export function createLocalGatewayDials() {
       const grant = dial ? pending.get(dial.nonce) : undefined
 
       if (!dial || !grant || grant.pathname !== dial.pathname || grant.webContentsId !== details.webContentsId
-          || details.resourceType !== 'webSocket' || (grant.header && grant.origin !== dial.origin)) {return null}
+          || details.resourceType !== 'webSocket' || (grant.strictOrigin && grant.origin !== dial.origin)
+          || (grant.profile !== undefined && grant.profile !== dial.profile)) {return null}
 
       pending.delete(dial.nonce)
 

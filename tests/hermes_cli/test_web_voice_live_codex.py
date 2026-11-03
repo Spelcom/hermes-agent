@@ -97,3 +97,30 @@ def test_call_secret_is_not_gateway_authentication(voice_client):
                                json={"call_token": call["call_token"], "session_id": "hermes-a"})
         assert response.status_code == 200
         assert calls[0].stopped.wait(timeout=3)
+
+
+def test_native_ticket_lease_negotiates_public_protocol_and_consumes_ticket(voice_client, monkeypatch):
+    """The real browser upgrade must select the public protocol, never its ticket."""
+    from hermes_cli import web_server
+    from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
+    from hermes_cli.web_server_boundary import _GATEWAY_WS_PROTOCOL, _GATEWAY_WS_TICKET_PROTOCOL_PREFIX
+
+    client, calls, _token, _home = voice_client
+    call = _create(client)
+    # Native desktop upgrades use a one-use gateway ticket carried in a
+    # subprotocol. Keep the actual auth/consume path and ASGI upgrade intact.
+    monkeypatch.setattr(web_server.app.state, "auth_required", True, raising=False)
+    ticket = mint_ticket(user_id="native-local-owner", provider="local")
+    protocols = [_GATEWAY_WS_PROTOCOL, f"{_GATEWAY_WS_TICKET_PROTOCOL_PREFIX}{ticket}"]
+    lease_url = f'/api/audio/voice-live/calls/{call["call_id"]}'
+    with client.websocket_connect(lease_url, subprotocols=protocols) as ws:
+        assert ws.accepted_subprotocol == _GATEWAY_WS_PROTOCOL
+        assert ticket not in ws.accepted_subprotocol
+        ws.send_json({"type": "authenticate", "call_token": call["call_token"], "session_id": "hermes-a"})
+        assert ws.receive_json() == {"type": "lease.ready"}
+        # A consumed native ticket does not authorize a second sibling socket.
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(lease_url, subprotocols=protocols):
+                pass
+        assert not calls[0].stopped.is_set()
+    assert calls[0].stopped.wait(timeout=3)

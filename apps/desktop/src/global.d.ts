@@ -58,6 +58,13 @@ declare global {
         pluginId: string
         profile?: null | string
       }) => Promise<null | string | { refused: 'permission' }>
+      // One-use native voice lease dial, bound to its fixed call path and owner.
+      // null means the exact route is remote and keeps its existing auth path.
+      getVoiceLiveCallWsUrl?: (payload: {
+        connectionId?: null | string
+        profile?: null | string
+        callId: string
+      }) => Promise<string | null>
       // Union agent roster across every registered connection.
       getAgentRoster?: () => Promise<DesktopAgentRoster>
       // Credential-free routes across the union connection registry. The

@@ -837,7 +837,7 @@ async def voice_live_call_ws(ws: WebSocket, call_id: str):
     profile = (ws.query_params.get("profile") or "").strip() or None
     managed = None
     forwarder = None
-    await ws.accept()
+    await ws.accept(subprotocol=getattr(ws, "_hermes_ws_subprotocol", None))
     try:
         async with asyncio.timeout(5):
             authentication = await ws.receive_json()

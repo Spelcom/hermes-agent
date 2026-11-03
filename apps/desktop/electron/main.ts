@@ -3,7 +3,7 @@ import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import type { GatewayEndpoint } from './local-gateway'
 import { configurePythonGatewayTicketClient, createLocalGatewayDials, createStaleGatewayRestarter, ensureLocalGateway, gatewayOwnerProfile, localGatewayDial, nativeGatewayHttpHeaders, redialLocalGateway, runGatewayEnsure, runGatewayOwnerRestart } from './local-gateway'
 import { closeGatewayTicketBridges, createGatewayTicketResolver } from './local-gateway-python'
-import { createPluginWsUrlHandler } from './plugin-ws-url'
+import { registerNativeSocketRoutes } from './native-socket-routes'
 const localGatewayDials = createLocalGatewayDials()
 configurePythonGatewayTicketClient(createGatewayTicketResolver(
   async () => ensureRuntime(await resolveHermesBackend([]), () => undefined), resolveHermesCwd))
@@ -15167,10 +15167,7 @@ ipcMain.handle('hermes:gateway:ws-url-for', async (_event, payload) => {
   })
 })
 
-const pluginWsUrl = createPluginWsUrlHandler({ ensureBackend, ensureRegistryBackend, forgetLocalGatewayDescriptor,
-  forgetRegistryLocalGatewayDescriptor, launchHome: HERMES_HOME, prepare: localGatewayDials.preparePlugin })
-
-ipcMain.handle('hermes:plugin:ws-url', (event, payload) => pluginWsUrl(payload ?? {}, event.sender.id))
+registerNativeSocketRoutes(ipcMain, { ensureBackend, ensureRegistryBackend, forgetLocalGatewayDescriptor, forgetRegistryLocalGatewayDescriptor, launchHome: HERMES_HOME, preparePlugin: localGatewayDials.preparePlugin, prepareVoiceCall: localGatewayDials.prepareVoiceCall })
 
 // Transactional update for a Desktop-managed SSH install. Unlike the generic
 // fleet fan-out below, this path owns the remote serve lifecycle: it gates new

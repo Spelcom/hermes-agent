@@ -2,7 +2,7 @@ import { CANONICAL_GATEWAY_PROTOCOL } from '@/api/canonical-protocol'
 import { hermesApiAs, type OwnerScope, profileScoped, type ResolvedOwner, resolveOwnerNow } from '@/api/client'
 import { hermesApi } from '@/hermes'
 import { pauseBackgroundVoice } from '@/lib/canvas-voice-ownership'
-import { resolveSiblingWsUrl } from '@/lib/sibling-ws-url'
+import { resolveVoiceLiveCallUrl } from '@/lib/voice-live-call-url'
 import { delegationRequest, LiveTranscriptAccumulator, liveWireEvent } from '@/lib/voice-live-protocol'
 
 /**
@@ -431,7 +431,7 @@ export class VoiceLiveSession {
     const call = this.call!
 
     const url = new URL(
-      await resolveSiblingWsUrl(this.callOwner!, `/api/audio/voice-live/calls/${encodeURIComponent(call.id)}`)
+      await resolveVoiceLiveCallUrl(this.callOwner!, call.id)
     )
 
     url.searchParams.set('session_id', call.sessionId)
@@ -463,9 +463,9 @@ export class VoiceLiveSession {
     await new Promise<void>((resolve, reject) => {
       const timeout = window.setTimeout(() => reject(new Error('Codex voice connection timed out')), 10_000)
 
-      const fail = () => {
+      const fail = (code: number) => {
         window.clearTimeout(timeout)
-        reject(new Error('Codex voice connection closed'))
+        reject(new Error(`Codex voice connection closed (code ${code})`))
       }
 
       socket.addEventListener('open', () =>
@@ -486,9 +486,8 @@ export class VoiceLiveSession {
           this.handleEvent(String(data))
         }
       })
-      socket.addEventListener('error', fail)
-      socket.addEventListener('close', () => {
-        fail()
+      socket.addEventListener('close', event => {
+        fail(event.code)
         this.finish('connection_lost', null)
       })
     })

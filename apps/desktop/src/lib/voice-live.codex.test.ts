@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setApiRequestConnection, setApiRequestProfile } from '@/hermes'
 
 import { VoiceLiveSession } from './voice-live'
-vi.mock('@/lib/sibling-ws-url', () => ({
-  resolveSiblingWsUrl: vi.fn(async () => 'ws://owner/api/audio/voice-live/calls/c1?native_dial=1&ticket=private-once')
+vi.mock('@/lib/voice-live-call-url', () => ({
+  resolveVoiceLiveCallUrl: vi.fn(async () => 'ws://owner/api/audio/voice-live/calls/c1?native_dial=1&ticket=private-once')
 }))
 
 class Channel extends EventTarget {
@@ -144,6 +144,16 @@ describe('native Codex live conversation', () => {
     channel.receive({ type: 'delegation.created', item: { id: 'late' } })
     expect(onDelegation).toHaveBeenCalledTimes(1)
   })
+  it('reports only the numeric close code when the native lease is refused', async () => {
+    setup()
+    vi.spyOn(Lease.prototype, 'send').mockImplementation(function (this: Lease) {
+      queueMicrotask(() => this.dispatchEvent(new CloseEvent('close', { code: 4403, reason: 'private details must not escape' })))
+    })
+    const session = new VoiceLiveSession({ onDelegation: vi.fn(), onClosed: vi.fn(), onError: vi.fn() }, { connectionId: 'office', profile: 'worker' })
+    await expect(session.start([], 'runtime-owner')).rejects.toThrow('Codex voice connection closed (code 4403)')
+    session.close()
+  })
+
   it('negotiates receive-only audio for the check without opening the microphone', async () => {
     const { getUserMedia, transceiver } = setup()
 

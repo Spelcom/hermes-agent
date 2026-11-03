@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   getGatewayWsUrlFor: payload => ipcRenderer.invoke('hermes:gateway:ws-url-for', payload),
   // { connectionId, profile, pluginId, path } → one-use local plugin socket URL, null, or { refused: 'permission' }.
   getPluginWsUrl: payload => ipcRenderer.invoke('hermes:plugin:ws-url', payload),
+  getVoiceLiveCallWsUrl: payload => ipcRenderer.invoke('hermes:voice-live:call-ws-url', payload),
   // Union agent roster across every registered connection.
   getAgentRoster: () => ipcRenderer.invoke('hermes:agents:roster'),
   openSessionWindow: (sessionId, opts) => ipcRenderer.invoke('hermes:window:openSession', sessionId, opts),
