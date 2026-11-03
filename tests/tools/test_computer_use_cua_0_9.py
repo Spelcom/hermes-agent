@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
@@ -262,14 +263,18 @@ def test_concurrent_hermes_sessions_do_not_share_backend_state():
             return [{"marker": self.marker}]
 
     def invoke(session_id):
-        return json.loads(
+        result = json.loads(
             computer_use.handle_computer_use(
                 {"action": "list_apps"},
                 session_id=session_id,
             )
-        )["apps"][0]["marker"]
+        )
+        assert "apps" in result, result
+        return result["apps"][0]["marker"]
 
-    with patch("tools.computer_use.cua_backend.CuaDriverBackend", _Backend):
+    # These fake backends share no physical desktop; the native Mac seat guard is tested separately.
+    with patch("tools.computer_use.cua_backend.CuaDriverBackend", _Backend), \
+            patch("tools.computer_use.shared_mac.native_control", side_effect=lambda **kw: nullcontext()):
         with ThreadPoolExecutor(max_workers=4) as executor:
             markers = list(
                 executor.map(invoke, ["conversation-a", "conversation-b"] * 4)

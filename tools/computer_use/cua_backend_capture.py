@@ -252,6 +252,12 @@ class _CaptureMixin:
         """
         args: dict[str, Any] = {"pid": self._active_pid, "window_id": self._active_window_id,
                                 "session": self._session_id}
+        # 0.35+ omits structured elements by default. Preserve frames and snapshot tokens; markdown
+        # alone cannot safely address elements. Older schemas must not receive unknown properties.
+        if self._session.supports_input_property("get_window_state", "tree_format"):
+            args["tree_format"] = "both"
+        elif self._session.supports_input_property("get_window_state", "full_output"):
+            args["full_output"] = True
         from tools.computer_use import cua_backend as _cb  # lazy: cua_backend imports this module at import time
         if capped := _cb._cua_configured_ax_max_elements():
             args["max_elements"] = capped

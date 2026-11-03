@@ -147,6 +147,16 @@ class _InputMixin:
 
     def type_text(self, text: str, *, delivery_mode: Optional[str] = None, bring_to_front: bool = False) -> ActionResult:
         refusal, args = self._target_args("type_text", need_window=True)
+        # 0.35+ turns these characters into Return/Tab keys on some delivery paths, which can submit
+        # a form or move focus. Never rewrite literal text or issue an implicit submission.
+        if refusal is None and any(char in text for char in "\r\n\t"):
+            setter = (self._session._has_tool("set_value")
+                      and all(self._session.supports_input_property("set_value", prop)
+                              for prop in ("element_index", "value")))
+            hint = ("Use set_value with a captured element for literal text. " if setter else
+                    "Use a literal text-entry method verified in the connected driver's schema. ")
+            return _refuse("type_text", "type_text refuses CR, LF and tab because the driver may send Return/Tab keys. "
+                           + hint + "Send intentional Return/Tab as separate key actions.", code="text_control_characters")
         return refusal if refusal is not None else self._run_input_action("type_text", {**args, "text": text},
                                                                           delivery_mode, bring_to_front)
 
