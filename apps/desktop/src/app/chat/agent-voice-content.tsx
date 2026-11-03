@@ -174,12 +174,13 @@ function VoiceControls({
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" role="status">
         {ready ? label : session.voiceLiveStatus?.reason || t.notifications.voice.unavailable}
       </span>
-      <AgentVoicePicker
-        disabled={active}
-        onPreviewChange={setPreviewing}
-        route={session.route}
-        sessionId={session.runtimeId}
-      />
+      {!active && (
+        <AgentVoicePicker
+          onPreviewChange={setPreviewing}
+          route={session.route}
+          sessionId={session.runtimeId}
+        />
+      )}
       {active ? (
         <>
           <Button
