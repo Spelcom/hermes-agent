@@ -2907,6 +2907,7 @@ catalog: CatalogTranslations
     transcribingDictation: string
     voicePreview: string
     voicePreviewReady: string
+    voiceOutputLevel: string
     voiceControls: string
     voiceEngine: string
     voiceEngineChained: string

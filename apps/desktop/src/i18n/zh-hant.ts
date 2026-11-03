@@ -167,6 +167,7 @@ export const zhHantOverrides = {
   composer: {
     voicePreview: '試聽聲音',
     voicePreviewReady: '語音正常：已收到音訊和文字',
+    voiceOutputLevel: '語音音量',
     ...zhHantChat.composer,
     redirect: '重新導向目前的執行',
     queueLostNote: '重新啟動期間該回合已遺失',

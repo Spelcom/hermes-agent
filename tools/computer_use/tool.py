@@ -344,8 +344,14 @@ def handle_computer_use(args: dict[str, Any], **kwargs) -> Any:
     # releases the admitted call lock on every dispatch return or exception.
     call = contextlib.ExitStack()
     try:
+        from tools.computer_use.shared_mac import native_control
         backend = call.enter_context(_backend_for_call(session_id))
+        call.enter_context(native_control(backend=backend, session_id=session_id, action=action))
     except Exception as e:
+        call.close()
+        from tools.computer_use.shared_mac import DesktopBusy
+        if isinstance(e, DesktopBusy):
+            return json.dumps({"ok": False, "action": action, "code": "shared_mac_busy", "error": str(e)})
         from plugins.computer_use import DEFAULT_BACKEND, configured_backend_name
         hint = ({"hint": "If the cua-driver binary is missing, run `hermes computer-use install`. If a Python "
                          "dependency is missing, the error above shows the exact install command."}

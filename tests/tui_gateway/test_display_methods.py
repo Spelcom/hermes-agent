@@ -193,6 +193,45 @@ def test_lease_acquire_and_release_only_honour_an_id_this_connection_minted(monk
     assert rpc(mine, "display.lease.release", {"viewer_id": minted})["result"]["lease"]["holder"] == _fresh_lease.AGENT
 
 
+@pytest.mark.platforms("macos")
+def test_native_control_only_observe_can_pause_all_profiles_without_minting_an_rfb_ticket(tmp_path, monkeypatch):
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+    from tools.bot_desktop import lease, runtime
+    from tools.computer_use import tool
+    from tui_gateway import server
+    homes = {name: tmp_path / name for name in ("default", "analyst", "developer", "researcher", "writer")}
+    for home in homes.values():
+        home.mkdir()
+    monkeypatch.setattr(server, "_profile_home", lambda name: str(homes[name]))
+    monkeypatch.setattr(runtime, "published_env", dict)
+    monkeypatch.setattr(runtime, "rfb_socket_path", lambda: None)
+    monkeypatch.setattr(runtime, "sandbox_screen_running", lambda: False)
+    monkeypatch.setattr(ws_tickets, "mint_ticket", lambda **kw: pytest.fail("Control-only observation minted an RFB ticket"))
+    monkeypatch.setattr(tool, "_get_backend", lambda **kw: pytest.fail("Human-held seat reached the driver"))
+    class Peer:
+        def write(self, value):
+            return True
+    mine, reconnected = Peer(), Peer()
+    def rpc(peer, method, **params):
+        return server.dispatch({"jsonrpc": "2.0", "id": 4, "method": method, "params": params}, peer)
+    assert "error" in rpc(mine, "display.observe", profile="default")
+    observed = rpc(mine, "display.observe", profile="default", control_only=True)["result"]
+    assert observed["control_only"] is True and observed["path"] == observed["ticket"] == ""
+    viewer = observed["viewer_id"]
+    held = rpc(mine, "display.lease.acquire", profile="default", viewer_id=viewer)["result"]["lease"]
+    assert held["holder"] == lease.HUMAN and held["viewer_id"] is None
+    assert "error" in rpc(reconnected, "display.lease.release", profile="default", viewer_id=viewer)
+    for name, home in homes.items():
+        assert rpc(mine, "display.status", profile=name)["result"]["lease"]["epoch"] == held["epoch"]
+        token = set_hermes_home_override(str(home))
+        try:
+            assert json.loads(tool.handle_computer_use({"action": "capture"}))["code"] == "human_has_control"
+        finally:
+            reset_hermes_home_override(token)
+    released = rpc(mine, "display.lease.release", profile="writer", viewer_id=viewer)["result"]["lease"]
+    assert released["holder"] == lease.AGENT and released["epoch"] > held["epoch"]
+
+
 def test_install_sudo_card_ignores_a_client_supplied_session_id(monkeypatch):
     """The sudo card is app-level: it goes to the connection that clicked Install (copy_context
     pins the transport) with an EMPTY session. Honouring params.session_id let a caller route the

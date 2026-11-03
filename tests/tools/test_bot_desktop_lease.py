@@ -72,7 +72,10 @@ def test_lease_authority_is_shared_across_processes(tmp_path):
     import sys
 
     lease.acquire("desktop-viewer")
+    from tools.computer_use import shared_mac
     probe = (f"import sys; sys.path.insert(0, {os.getcwd()!r})\n"
+             "from pathlib import Path\nfrom tools.computer_use import shared_mac\n"
+             f"shared_mac._state_dir = lambda: Path({str(shared_mac._state_dir())!r})\n"
              "from tools.bot_desktop import lease\n"
              "try:\n    lease.assert_agent_may_act(); print('AGENT')\n"
              "except lease.HumanHasControl:\n    print('HUMAN')\n"
@@ -163,6 +166,8 @@ def test_lease_works_without_fcntl(tmp_path):
     import sys
 
     probe = (f"import sys; sys.modules['fcntl'] = None; sys.path.insert(0, {os.getcwd()!r})\n"
+             "from pathlib import Path\nfrom tools.computer_use import shared_mac\n"
+             f"shared_mac._state_dir = lambda: Path({str(tmp_path / 'seat')!r})\n"
              "from tools.bot_desktop import lease\n"
              "import tools.computer_use.tool\n"
              "assert lease.get().holder == lease.AGENT\n"

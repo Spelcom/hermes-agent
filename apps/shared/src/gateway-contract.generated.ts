@@ -1487,6 +1487,7 @@ export interface DisplayStopResult {
 export interface DisplayObserveParams {
   profile?: string | null
   viewer_id?: string | null
+  control_only?: boolean
 }
 export interface DisplayObserveResult {
   profile: string
@@ -1510,6 +1511,7 @@ export interface DisplayObserveResult {
   ticket: string
   path: string
   viewer_id: string
+  control_only?: boolean
 }
 export interface DisplaySwitchSandboxImageParams {
   profile?: string | null

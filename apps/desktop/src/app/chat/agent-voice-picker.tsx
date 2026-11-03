@@ -3,11 +3,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { saveHermesConfigRecord } from '@/api/config'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useI18n } from '@/i18n'
+import { cn } from '@/lib/utils'
 import { fetchVoiceLiveStatus, type VoiceLiveStatus } from '@/lib/voice-live'
 import type { PluginProfileRoute } from '@/sdk/profile-request'
+import { applyVoiceOutputGain, voiceOutputLevel } from '@/store/voice-output'
 
 import { captureAgentConversationRoute } from './agent-conversation-session'
 import { AgentVoiceCheck } from './agent-voice-check'
+import { AgentVoiceOutputLevel } from './agent-voice-output-level'
 
 export interface AgentVoicePickerProps {
   route: PluginProfileRoute
@@ -42,9 +45,15 @@ function OwnedVoicePicker({ route, disabled, className, sessionId, onPreviewChan
     let current = true
     setStatus(null)
     setError('')
-    void fetchVoiceLiveStatus({ connectionId, profile: targetProfile }).then(next => {
+    const owner = { connectionId, profile: targetProfile }
+    const previousOutput = voiceOutputLevel(owner).get()
+    void fetchVoiceLiveStatus(owner).then(next => {
       if (current) {
         setStatus(next)
+
+        if (next) {
+          applyVoiceOutputGain(owner, next.output_gain, previousOutput)
+        }
       }
     })
 
@@ -58,8 +67,8 @@ function OwnedVoicePicker({ route, disabled, className, sessionId, onPreviewChan
   }
 
   return (
-    <div className={className}>
-      <div className="flex items-center gap-2">
+    <div className={cn('flex min-w-0 max-w-full flex-col gap-2', className)}>
+      <div className="flex min-w-0 flex-wrap items-start gap-2">
         <Select
           disabled={disabled || saving || previewing}
           onValueChange={voice => {
@@ -78,8 +87,8 @@ function OwnedVoicePicker({ route, disabled, className, sessionId, onPreviewChan
           }}
           value={status.voice}
         >
-          <SelectTrigger aria-label={t.composer.voiceControls} size="sm">
-            <SelectValue />
+          <SelectTrigger aria-label={t.composer.voiceControls} className="flex-1 basis-20" size="sm">
+            <SelectValue className="truncate" />
           </SelectTrigger>
           <SelectContent>
             {status.voices.map(voice => (
@@ -90,6 +99,7 @@ function OwnedVoicePicker({ route, disabled, className, sessionId, onPreviewChan
           </SelectContent>
         </Select>
         <AgentVoiceCheck
+          className="flex-1 basis-36"
           disabled={disabled || saving}
           onCheckingChange={value => {
             setPreviewing(value)
@@ -99,8 +109,9 @@ function OwnedVoicePicker({ route, disabled, className, sessionId, onPreviewChan
           sessionId={sessionId}
         />
       </div>
+      <AgentVoiceOutputLevel route={route} />
       {error && (
-        <p className="text-xs text-destructive" role="alert">
+        <p className="text-xs [overflow-wrap:anywhere] text-destructive" role="alert">
           {error}
         </p>
       )}

@@ -15,13 +15,18 @@ processes that must agree do not share memory: ``hermes serve`` (viewer bridge),
 gateway, a CLI turn and isolated workers all drive the same display. Every read goes to the file;
 the in-process Condition only wakes local waiters early. ``epoch`` increments on every transition so
 an action admitted under one lease can tell that control changed underneath it.
+Native Mac Cua profiles instead resolve to the same private OS-user seat directory as their
+computer_use call lock: their physical desktop and human takeover authority are shared.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
+import stat
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -76,7 +81,33 @@ def _path(profile_key: Optional[str]) -> Path:
     """``profile_key`` is the HERMES_HOME path of the profile whose lease is meant (the RFB bridge
     serves several profiles from one process); ``None`` means the current profile."""
     home = Path(profile_key) if profile_key else get_hermes_home()
+    if sys.platform == "darwin" and _native_mac_seat(home):
+        from tools.computer_use.shared_mac import _state_dir
+        return _state_dir() / "lease.json"
     return home / "bot-desktop" / "lease.json"
+
+
+def _native_mac_seat(home: Path) -> bool:
+    """Native Cua profiles share the physical user's human lease, including the default backend."""
+    from hermes_cli.config_effective import load_user_config_effective
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+    from tools.bot_desktop import placement, runtime
+
+    with contextlib.ExitStack() as scope:
+        if hermes_home_key(home) != hermes_home_key():
+            # Watchers resolve several homes outside a turn; their terminal policy and config
+            # expansion must belong to that home too. External secret sources stay unhydrated.
+            from agent.secret_scope import build_profile_secret_scope, reset_secret_scope, set_secret_scope
+            from tools.terminal_scope import install_profile_terminal_scope, reset_terminal_scope
+            scope.callback(reset_hermes_home_override, set_hermes_home_override(str(home)))
+            scope.callback(reset_secret_scope, set_secret_scope(build_profile_secret_scope(home), profile_home=str(home)))
+            scope.callback(reset_terminal_scope, install_profile_terminal_scope(home))
+        cfg = load_user_config_effective(home / "config.yaml", fail_closed=True)
+        raw_backend = (cfg.get("computer_use") or {}).get("backend")
+        backend = raw_backend.strip() if isinstance(raw_backend, str) and raw_backend.strip() else "cua"
+        return (backend == "cua"
+                and placement.resolve().where == placement.GATEWAY
+                and not runtime.published_env().get("DISPLAY"))
 
 
 def _read(path: Path) -> Lease:
@@ -105,12 +136,18 @@ def _private_dir(path: Path) -> None:
     """``bot-desktop/`` owner-only even when the lease is the first thing written there (a takeover can be
     recorded before start() ever ran, and the umask would otherwise leave it 0755)."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    info = path.parent.lstat()
+    if not stat.S_ISDIR(info.st_mode) or (hasattr(os, "getuid") and info.st_uid != os.getuid()):
+        raise RuntimeError("Desktop lease directory is not owned by this user")
     secure_parent_dir(path)
 
 
 def _open_private(path: str | bytes | os.PathLike, flags: int) -> int:
     """``open(..., opener=_open_private)``: the file is created 0600 regardless of the umask."""
-    return os.open(path, flags, 0o600)
+    fd = os.open(path, flags | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    if hasattr(os, "fchmod"):
+        os.fchmod(fd, 0o600)
+    return fd
 
 
 def _write(path: Path, lease: Lease) -> None:
@@ -249,7 +286,7 @@ def assert_agent_may_act(profile_key: Optional[str] = None) -> Lease:
 def _reset_for_tests() -> None:
     with _lock:
         _listeners.clear()
-    p = get_hermes_home() / "bot-desktop" / "lease.json"
+    p = _path(None)
     for f in (p, p.with_suffix(".lock"), p.with_suffix(".json.tmp")):
         try:
             f.unlink()

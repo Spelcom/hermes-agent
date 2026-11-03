@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional
@@ -135,6 +136,14 @@ def live_auth(live: dict[str, Any]) -> str:
     raise ValueError("Unknown voice.gpt_live.auth; choose codex-subscription or api-key")
 
 
+def live_output_gain(live: Optional[dict[str, Any]] = None) -> float:
+    """Client playback gain, never a vendor session option or microphone setting."""
+    raw = (live if live is not None else _live_section()).get("output_gain", 1)
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw):
+        return 1.0
+    return max(0.0, min(4.0, float(raw)))
+
+
 def resolve_gpt_live_status() -> dict[str, Any]:
     """Passive readiness. Native account status is checked only on explicit call start."""
     voice = _voice_section()
@@ -149,6 +158,7 @@ def resolve_gpt_live_status() -> dict[str, Any]:
             "model": DEFAULT_MODEL, "voice": str(live.get("voice") or DEFAULT_CODEX_VOICE),
             "voices": list(CODEX_LIVE_VOICES),
             "account_status": "checked-on-start",
+            "output_gain": live_output_gain(live),
         }
     api_key, _base = _resolve_credentials(live)
     return {
@@ -157,6 +167,7 @@ def resolve_gpt_live_status() -> dict[str, Any]:
         "reason": None if api_key else "no OpenAI API key (set OPENAI_API_KEY or voice.gpt_live.api_key)",
         "model": str(live.get("model") or DEFAULT_LIVE_MODEL),
         "voice": str(live.get("voice") or DEFAULT_LIVE_VOICE),
+        "output_gain": live_output_gain(live),
     }
 
 
@@ -167,17 +178,18 @@ async def create_webrtc_session_async(sdp_offer: str, history: Optional[list] = 
     live = _live_section()
     if live_auth(live) == "api-key":
         result = await asyncio.to_thread(create_webrtc_session, sdp_offer, history)
-        return {**result, "auth": "api-key", "wire_protocol": "live-api"}
+        return {**result, "auth": "api-key", "wire_protocol": "live-api", "output_gain": live_output_gain(live)}
     from hermes_constants import get_hermes_home
     from tools.voice_live_codex import INSTALL_HINT, codex_binary, create_managed_call
     binary = codex_binary(str(live.get("codex_binary") or ""))
     if not binary:
         raise ValueError(INSTALL_HINT)
-    return await create_managed_call(
+    result = await create_managed_call(
         sdp_offer, profile=str(get_hermes_home().resolve()), session_id=session_id,
         instructions=live_instructions(live), voice=str(live.get("voice") or DEFAULT_CODEX_VOICE),
         binary=binary, history=history, agent_model=str(live.get("codex_agent_model") or "").strip(),
     )
+    return {**result, "output_gain": live_output_gain(live)}
 
 
 def build_session_config(history: Optional[list] = None) -> dict[str, Any]:
@@ -217,7 +229,7 @@ def create_webrtc_session(sdp_offer: str, history: Optional[list] = None) -> dic
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            return {**json.loads(resp.read().decode("utf-8")), "output_gain": live_output_gain(live)}
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:600]
         logger.warning("GPT-Live session creation failed: %s %s", exc.code, detail)

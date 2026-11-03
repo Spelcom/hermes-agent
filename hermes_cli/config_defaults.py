@@ -1235,6 +1235,7 @@ DEFAULT_CONFIG = {
             "codex_agent_model": "",  # optional model for the inert backing relay, not the voice model
             "model": "gpt-live-1",
             "voice": "marin",  # marin | quartz | ripple | vesper | willow | stone | gleam | meridian | ...
+            "output_gain": 1.0,  # client playback multiplier, 0..4; does not change microphone or OS volume
             # Extra sentences appended to the live model's conversation persona (tone, pacing, language).
             "instructions": "",
             # optional "api_key" / "base_url" keys override the OpenAI audio credentials for this mode only
@@ -2555,12 +2556,10 @@ DEFAULT_CONFIG = {
         # cua-driver's upstream PostHog telemetry defaults ON; Hermes sets
         # CUA_DRIVER_RS_TELEMETRY_ENABLED=0 in every child env unless this is true.
         "cua_telemetry": False,
-        # Windows only: opt IN to the per-boot cua-driver-serve logon task. False (default)
-        # keeps the driver on-demand — Computer Use starts it per session, exactly as on
-        # macOS/Linux, and install/enable flows register no scheduled task (#97389). True
-        # registers (or repairs) the task at install time — needed to drive Windows over SSH,
-        # where Session 0 has no interactive desktop (see the computer-use guide).
+        # Windows logon task is opt-in for SSH/Session 0; otherwise start on demand (#97389).
         "autostart": False,
+        # False requires already-installed PM artifacts; no automatic runtime acquisition.
+        "allow_runtime_install": True,
         "native_wayland": False,
         # Cap driver screenshot longest edge (pixels) via set_config at session start; shrinks SOM
         # multimodal payloads. 0 disables.

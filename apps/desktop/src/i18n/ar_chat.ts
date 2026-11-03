@@ -30,6 +30,7 @@ export const arChat = {
     transcribingDictation: 'جار تفريغ الإملاء',
     voicePreview: 'معاينة الصوت',
     voicePreviewReady: 'الصوت يعمل: تم استلام الصوت والنص',
+    voiceOutputLevel: 'مستوى صوت الرد',
     voiceControls: 'صوت',
     voiceDictation: 'إملاء صوتي',
     lookupLoading: 'جار البحث...',

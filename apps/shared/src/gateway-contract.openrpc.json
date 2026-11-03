@@ -17718,6 +17718,11 @@
             ],
             "default": null,
             "title": "Viewer Id"
+          },
+          "control_only": {
+            "default": false,
+            "title": "Control Only",
+            "type": "boolean"
           }
         },
         "title": "DisplayObserveParams",
@@ -17883,6 +17888,11 @@
           "viewer_id": {
             "title": "Viewer Id",
             "type": "string"
+          },
+          "control_only": {
+            "default": false,
+            "title": "Control Only",
+            "type": "boolean"
           }
         },
         "required": [

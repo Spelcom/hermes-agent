@@ -3734,6 +3734,7 @@ export const esOverrides = {
     transcribingDictation: 'Transcribiendo dictado',
     voicePreview: 'Escuchar voz',
     voicePreviewReady: 'La voz funciona: audio y texto recibidos',
+    voiceOutputLevel: 'Volumen de voz',
     voiceControls: 'Voz',
     voiceEngine: 'Motor del chat de voz',
     voiceEngineChained: 'Voz a texto + voz de Hermes',

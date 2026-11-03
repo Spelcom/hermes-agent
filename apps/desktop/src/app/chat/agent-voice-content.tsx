@@ -172,18 +172,20 @@ function VoiceControls({
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2 p-2">
       <span
-        className={active || !ready ? 'min-w-0 flex-1 truncate text-xs text-muted-foreground' : 'sr-only'}
+        className={
+          active || !ready ? 'min-w-0 basis-full text-xs [overflow-wrap:anywhere] text-muted-foreground' : 'sr-only'
+        }
         role="status"
       >
         {ready ? label : session.voiceLiveStatus?.reason || t.notifications.voice.unavailable}
       </span>
-      {!active && (
-        <AgentVoicePicker
-          onPreviewChange={setPreviewing}
-          route={session.route}
-          sessionId={session.runtimeId}
-        />
-      )}
+      <AgentVoicePicker
+        className="min-w-0 flex-1 basis-48"
+        disabled={active}
+        onPreviewChange={setPreviewing}
+        route={session.route}
+        sessionId={session.runtimeId}
+      />
       {active ? (
         <>
           <Button

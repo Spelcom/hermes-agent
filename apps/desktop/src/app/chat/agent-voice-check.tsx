@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
+import { cn } from '@/lib/utils'
 import { checkLiveVoice } from '@/lib/voice-live-check'
 import type { PluginProfileRoute } from '@/sdk/profile-request'
 
@@ -9,11 +10,13 @@ import { openAgentConversationSession } from './agent-conversation-session'
 
 export function AgentVoiceCheck({
   route,
+  className,
   sessionId,
   disabled,
   onCheckingChange
 }: {
   route: PluginProfileRoute
+  className?: string
   sessionId?: string
   disabled?: boolean
   onCheckingChange?: (checking: boolean) => void
@@ -31,8 +34,9 @@ export function AgentVoiceCheck({
   )
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1 text-xs">
+    <div className={cn('flex min-w-0 max-w-full flex-wrap items-start gap-x-2 gap-y-1 text-xs', className)}>
       <Button
+        className="min-w-0 max-w-full"
         disabled={checking || disabled}
         onClick={() => {
           if (running.current) {
@@ -81,9 +85,14 @@ export function AgentVoiceCheck({
         size="sm"
         variant="ghost"
       >
-        {t.composer.voicePreview}
+        <span className="min-w-0 truncate">{t.composer.voicePreview}</span>
       </Button>
-      <span role="status">{state}</span>
+      <span
+        className="max-h-24 min-w-0 w-full overflow-y-auto whitespace-normal [overflow-wrap:anywhere]"
+        role="status"
+      >
+        {state}
+      </span>
     </div>
   )
 }

@@ -253,7 +253,8 @@ async def forward_secondary_plugin_request(request, name: str) -> Optional[Respo
         from hermes_cli.plugins import get_plugin_manager
         host = get_plugin_manager()._plugin_host()  # the active (secondary) profile's own host
         return host.asgi_request(name, str(plugin["_dir"]), str(plugin["_api_file"]), request.method, path,
-                                 query, headers, body, timeout=timeout, authenticated=authenticated)
+                                 query, headers, body, timeout=timeout, authenticated=authenticated,
+                                 client=request.client)
 
     try:
         return await run_hosted_request(home, name, call)

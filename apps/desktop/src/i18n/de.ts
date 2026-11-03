@@ -3744,6 +3744,7 @@ export const deOverrides = {
     transcribingDictation: 'Transkribiert Diktat',
     voicePreview: 'Stimme anhören',
     voicePreviewReady: 'Die Stimme funktioniert: Audio und Text empfangen',
+    voiceOutputLevel: 'Sprachlautstärke',
     voiceControls: 'Sprache',
     voiceEngine: 'Sprachchat-Engine',
     voiceEngineChained: 'Sprache-zu-Text + Hermes-Stimme',

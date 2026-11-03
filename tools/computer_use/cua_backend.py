@@ -144,6 +144,8 @@ def cua_driver_child_env(base_env: Optional[dict[str, str]] = None) -> dict[str,
     # cua-driver never acts on a seat the human is sitting at (#90374 class) and headless hosts get a display.
     from tools.bot_desktop.runtime import desktop_env as _bot_desktop_env
     env = _bot_desktop_env(env)
+    # The managed PM pin is the update authority; the driver's background GitHub checks are disabled.
+    env["CUA_DRIVER_RS_UPDATE_CHECK"] = "false"
     if _cua_telemetry_disabled():
         env[_CUA_TELEMETRY_ENV_VAR] = "0"
     if sys.platform == "linux" and env.get("WAYLAND_DISPLAY") and bool(_computer_use_cfg().get("native_wayland", False)):
@@ -277,7 +279,8 @@ class CuaDriverBackend(_CaptureMixin, _InputMixin, ComputerUseBackend):
         """Invalidate every capability minted by the replaced transport."""
         self._clear_active_target()
 
-    def start(self) -> None:
+    def start(self, *, acquire_runtime: bool = True) -> None:
+        acquire_runtime = acquire_runtime and _computer_use_cfg().get("allow_runtime_install", True) is not False
         # Driver inside the terminal backend: the sandbox image pins its own cua-driver; the host
         # binary (if any) is not the one that will run, so neither its acquisition nor its contract
         # matters. On the host, runtime acquisition is on-demand, never the explicit install command
@@ -285,7 +288,7 @@ class CuaDriverBackend(_CaptureMixin, _InputMixin, ComputerUseBackend):
         if sandbox_mcp_invocation() is not None:
             contract = {"ready": True}
         else:
-            if not os.environ.get(_CUA_DRIVER_CMD_ENV, "").strip():
+            if acquire_runtime and not os.environ.get(_CUA_DRIVER_CMD_ENV, "").strip():
                 from pm import ensure
                 ensure("cua-driver")
             contract = cua_driver_runtime_contract_status()
@@ -302,8 +305,12 @@ class CuaDriverBackend(_CaptureMixin, _InputMixin, ComputerUseBackend):
         # (default on); when it's disabled or fails, ensure_import() raises
         # InstallError explaining why PM could not enable the SDK,
         # which surfaces via the backend-unavailable path in tool.py.
-        from pm import ensure_import
-        ensure_import("computer-use")
+        if acquire_runtime:
+            from pm import ensure_import
+            ensure_import("computer-use")
+        else:
+            # Passive monitors may use installed dependencies but never install/update software.
+            import mcp
         # A just-installed package may not be importable until the import
         # machinery's caches are refreshed within this process.
         import importlib

@@ -97,3 +97,44 @@ def test_admission_matches_normal_guard_and_preserves_unguarded_routes():
         with pytest.raises(HTTPException) as error:
             web_server._require_token(Request({**scope, "state": {"hosted_http_authenticated": marker}}))
         assert error.value.status_code == 401
+
+
+_LOCAL_API = '''
+import ipaddress
+from fastapi import APIRouter, HTTPException, Request
+from hermes_cli.web_server import _require_token
+router = APIRouter()
+@router.get("/frame")
+def frame(request: Request):
+    _require_token(request)
+    if request.client is None or not ipaddress.ip_address(request.client.host).is_loopback:
+        raise HTTPException(403, "loopback required before capture")
+    return {"captured": True, "peer": list(request.client)}
+'''
+
+
+@pytest.mark.platforms("any")
+@pytest.mark.parametrize("secondary_profile", [False, True])
+def test_actual_hosted_forwarding_keeps_remote_peer_out_of_local_capture(daemon, monkeypatch, secondary_profile):
+    from starlette.testclient import TestClient
+    monkeypatch.setattr(PluginHost, "asgi_request", secondary._REAL_ASGI_REQUEST)
+    if secondary_profile:
+        secondary._beta_plugin(daemon)
+        home, name = daemon.beta, secondary.NAME
+    else:
+        home, name = daemon.launch, "local-capture"
+        secondary._install(home, name)
+        secondary._plugins(home, enabled=[name], isolation="host")
+    (home / "plugins" / name / "dashboard" / "plugin_api.py").write_text(_LOCAL_API, encoding="utf-8")
+    url = f"/api/plugins/{name}/frame"
+    try:
+        for peer, expected in ((("203.0.113.5", 3500), 403), (("127.0.0.1", 3500), 200)):
+            client = TestClient(daemon.client.app, client=peer)
+            headers = daemon.beta_ticket() if secondary_profile else daemon.owner
+            response = client.get(url, headers={**headers, "X-Forwarded-For": "127.0.0.1"})
+            assert response.status_code == expected, response.text
+            if expected == 200:
+                assert response.json() == {"captured": True, "peer": list(peer)}
+            assert client.get(url, params={"profile": "beta"} if secondary_profile else {}).status_code == 401
+    finally:
+        secondary._shutdown_hosts()

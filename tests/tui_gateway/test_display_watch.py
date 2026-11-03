@@ -13,13 +13,18 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 
 
 def _other_process(home: Path, stmt: str) -> None:
+    from tools.computer_use import shared_mac
     env = {**os.environ, "HERMES_HOME": str(home)}
     subprocess.run(
         [sys.executable, "-c", f"import sys; sys.path.insert(0, {str(REPO)!r}); "
+         "from pathlib import Path; from tools.computer_use import shared_mac; "
+         f"shared_mac._state_dir = lambda: Path({str(shared_mac._state_dir())!r}); "
          f"from tools.bot_desktop import lease; {stmt}"],
         cwd=str(REPO), env=env, check=True, timeout=60, stdin=subprocess.DEVNULL)
 
@@ -61,6 +66,28 @@ def _watching(server, home: Path, monkeypatch) -> list:
 
 def _lease_events(events, **want):
     return [p for ev, p in events if ev == "display.lease" and all(p["lease"].get(k) == v for k, v in want.items())]
+
+
+@pytest.mark.platforms("macos")
+def test_shared_native_lease_transition_reaches_every_profiles_ui(tmp_path, monkeypatch):
+    from tui_gateway import server
+    from tools.bot_desktop import lease, runtime
+    from hermes_constants import hermes_home_key
+    homes = [tmp_path / name for name in ("default", "analyst", "developer", "researcher", "writer")]
+    for home in homes:
+        home.mkdir()
+    monkeypatch.setattr(runtime, "published_env", dict)
+    monkeypatch.setattr(server, "_watched_lease_homes", lambda: homes)
+    monkeypatch.setattr(server, "_lease_epochs", {})
+    monkeypatch.setattr(server, "_lease_mtimes", {})
+    events = []
+    monkeypatch.setattr(server, "_broadcast_global_event", lambda ev, payload: events.append((ev, payload)))
+    server._poll_lease_files()
+    lease.acquire("human", profile_key=str(homes[0]))
+    server._poll_lease_files()
+    assert {p["profile_key"] for p in _lease_events(events, holder="human")} == {
+        hermes_home_key(home) for home in homes}
+    assert all(p["lease"]["viewer_id"] is None for _, p in events)
 
 
 def test_takeover_in_another_process_is_broadcast(tmp_path, monkeypatch):

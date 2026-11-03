@@ -977,7 +977,7 @@ def _mount_hosted_plugin_api(app, plugin: dict, api_file_name: str) -> None:
         authenticated = admitted_for_sensitive_route(request)
         return await run_hosted_request(host.home, name, lambda timeout: host.asgi_request(
             name, dashboard_dir, api_file, request.method, "/" + path, query, headers, body,
-            timeout=timeout, authenticated=authenticated))
+            timeout=timeout, authenticated=authenticated, client=request.client))
 
     app.add_api_route(f"/api/plugins/{name}/{{path:path}}", forward, include_in_schema=False,
                       methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],

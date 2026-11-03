@@ -14,6 +14,7 @@ Bodies are rebound onto server.py's globals (method_ctx.bind_module) and referen
 """
 
 import logging
+import sys
 import threading
 import weakref
 
@@ -156,6 +157,13 @@ def _(rid, params: dict) -> dict:
     from hermes_cli.dashboard_auth.ws_tickets import mint_ticket
     from tools.bot_desktop import runtime as _bd_runtime
     try:
+        if params.get("control_only"):
+            from tools.bot_desktop import lease as _bd_lease
+            if sys.platform != "darwin" or not _bd_lease._native_mac_seat(get_hermes_home()):
+                return _err(rid, _DISPLAY_ERR, "control-only observation requires the native shared Mac desktop")
+            viewer_id = _mint_viewer_id(str(params.get("viewer_id") or "").strip())
+            return _ok(rid, {"ticket": "", "path": "", "viewer_id": viewer_id,
+                             "control_only": True, **_display_snapshot()})
         # The bridge dials either the host RFB socket or the sandbox relay; neither exists before start.
         if _bd_runtime.rfb_socket_path() is None and not _bd_runtime.sandbox_screen_running():
             return _err(rid, _DISPLAY_ERR, "this profile's Bot Desktop is not running; call display.start first")

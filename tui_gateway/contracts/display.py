@@ -101,12 +101,14 @@ method("display.stop", params=DisplayStopParams, result=DisplayStopResult,
 
 class DisplayObserveParams(ProfileParams):
     viewer_id: str | None = None  # an id THIS connection minted earlier keeps its identity across a reconnect
+    control_only: bool = False  # native shared Mac: mint a takeover identity without an RFB stream
 
 
 class DisplayObserveResult(DisplayStatus):
     ticket: str
     path: str
     viewer_id: str
+    control_only: bool = False  # true means ticket/path are empty; no stream ticket was minted
 
 
 method("display.observe", params=DisplayObserveParams, result=DisplayObserveResult,

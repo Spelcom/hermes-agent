@@ -2570,6 +2570,7 @@ export const ruOverrides = {
     transcribingDictation: 'Расшифровка диктовки',
     voicePreview: 'Послушать голос',
     voicePreviewReady: 'Голос работает: получены звук и текст',
+    voiceOutputLevel: 'Громкость голоса',
     voiceControls: 'Голос',
     voiceDictation: 'Голосовая диктовка',
     speakReplies: 'Зачитывать ответы вслух',

@@ -131,7 +131,7 @@ def _poll_lease_files() -> None:
     for home in _watched_lease_homes():
         key = hermes_home_key(home)
         try:
-            mtime = (home / "bot-desktop" / "lease.json").stat().st_mtime_ns
+            mtime = _bd_lease._path(str(home)).stat().st_mtime_ns
         except OSError:
             mtime = None
         if mtime == _lease_mtimes.get(key, 0):

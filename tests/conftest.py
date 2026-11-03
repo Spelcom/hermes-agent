@@ -348,6 +348,9 @@ def _hermetic_environment(tmp_path, tmp_path_factory, monkeypatch):
     # hermes_state's live-DB guard stays armed in them even when the test
     # strips pytest's own PYTEST_* vars from the child env.
     monkeypatch.setenv("HERMES_TEST_ISOLATION", str(fake_hermes_home))
+    # Native Mac profiles coordinate outside HERMES_HOME. Keep tests off the real OS seat too.
+    from tools.computer_use import shared_mac
+    monkeypatch.setattr(shared_mac, "_state_dir", lambda: fake_hermes_home / "shared-mac-seat")
     # And never let a developer-shell (or leaked child) bypass disarm the
     # guard for in-process code under test.
     monkeypatch.delenv("HERMES_STATE_DB_GUARD_BYPASS", raising=False)

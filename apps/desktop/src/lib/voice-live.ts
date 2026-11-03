@@ -3,8 +3,10 @@ import { hermesApiAs, type OwnerScope, profileScoped, type ResolvedOwner, resolv
 import { hermesApi } from '@/hermes'
 import { pauseBackgroundVoice } from '@/lib/canvas-voice-ownership'
 import { resolveVoiceLiveCallUrl } from '@/lib/voice-live-call-url'
+import { createVoiceLiveOutput } from '@/lib/voice-live-output'
 import { delegationRequest, LiveTranscriptAccumulator, liveWireEvent } from '@/lib/voice-live-protocol'
 import { withTimeout } from '@/lib/with-timeout'
+import { applyVoiceOutputGain, voiceOutputLevel } from '@/store/voice-output'
 
 /**
  * GPT-Live voice chat: the full-duplex voice frontend that DELEGATES to Hermes.
@@ -36,6 +38,7 @@ export interface VoiceLiveStatus {
   voices?: string[]
   auth?: 'codex-subscription' | 'api-key'
   wire_protocol?: 'codex-v3' | 'live-api'
+  output_gain?: number
 }
 
 export interface LiveHistoryMessage {
@@ -72,7 +75,8 @@ const APPEND_CHAR_LIMIT = 1_400
 
 // How much conversation the backend receives per delegation.
 const STARTUP_FAILURE_MESSAGE = {
-  permission: 'Система не ответила на запрос доступа к микрофону за 60 секунд. Проверьте настройки микрофона и повторите.',
+  permission:
+    'Система не ответила на запрос доступа к микрофону за 60 секунд. Проверьте настройки микрофона и повторите.',
   capture: 'Запрос записи с микрофона не завершился за 60 секунд. Проверьте выбранный микрофон и доступ к нему.',
   voice: 'Не удалось соединиться с голосом за 60 секунд. Попробуйте ещё раз.'
 }
@@ -100,7 +104,8 @@ export async function fetchVoiceLiveStatus(owner?: ResolvedOwner): Promise<null 
       voice: response.voice,
       voices: response.voices,
       auth: response.auth,
-      wire_protocol: response.wire_protocol
+      wire_protocol: response.wire_protocol,
+      output_gain: response.output_gain
     }
   } catch {
     // Older backend without the endpoint → chained.
@@ -245,8 +250,8 @@ export class VoiceLiveSession {
   private call: { id: string; token: string; sessionId: string } | null = null
   private callOwner: ResolvedOwner | null = null
   private speakingProbe: null | number = null
-  private analyser: null | AnalyserNode = null
-  private audioContext: null | AudioContext = null
+  private output: ReturnType<typeof createVoiceLiveOutput> | null = null
+  private releaseOutputLevel: (() => void) | null = null
   private lastSpeaking = false
   sessionId: null | string = null
   /** The delegation currently being answered by Hermes; late results for an
@@ -293,13 +298,21 @@ export class VoiceLiveSession {
     return this.transcript.fragments.filter(fragment => fragment.endMs >= floor).slice(-CONTEXT_MAX_FRAGMENTS)
   }
 
-  async start(history: LiveHistoryMessage[], ownerSessionId?: string | null, options: { microphone?: boolean } = {}): Promise<void> {
-    await withTimeout(this.openConnection(history, ownerSessionId, options), 60_000,
-      'Не удалось соединиться с голосом за 60 секунд. Попробуйте ещё раз.', error => {
+  async start(
+    history: LiveHistoryMessage[],
+    ownerSessionId?: string | null,
+    options: { microphone?: boolean } = {}
+  ): Promise<void> {
+    await withTimeout(
+      this.openConnection(history, ownerSessionId, options),
+      60_000,
+      'Не удалось соединиться с голосом за 60 секунд. Попробуйте ещё раз.',
+      error => {
         error.message = STARTUP_FAILURE_MESSAGE[this.startupStage]
 
         this.finish('close_requested', null)
-      })
+      }
+    )
   }
 
   private async openConnection(
@@ -312,15 +325,29 @@ export class VoiceLiveSession {
     }
 
     this.callOwner = resolveOwnerNow(this.owner ?? undefined)
+    const outputLevel = voiceOutputLevel(this.callOwner)
+    const initialOutputLevel = outputLevel.get()
+    this.releaseOutputLevel = outputLevel.listen(({ gain }) => {
+      this.output?.setGain(gain)
+
+      if (!this.output) {
+        this.audio.volume = Math.min(1, gain)
+      }
+    })
     this.releaseStandby = pauseBackgroundVoice()
     const connection = new RTCPeerConnection()
     this.peer = connection
 
     connection.addEventListener('track', event => {
       const stream = new MediaStream([event.track])
+
+      if (this.finalized) {
+        return
+      }
+
       this.audio.srcObject = stream
-      void this.audio.play().catch(() => undefined)
       this.armSpeakingProbe(stream)
+      void this.audio.play().catch(() => undefined)
     })
     connection.addEventListener('connectionstatechange', () => {
       if (connection.connectionState === 'failed' || connection.connectionState === 'disconnected') {
@@ -335,7 +362,9 @@ export class VoiceLiveSession {
       await this.openMicrophone(connection)
     }
 
-    if (this.finalized) { return }
+    if (this.finalized) {
+      return
+    }
 
     this.startupStage = 'voice'
 
@@ -359,7 +388,9 @@ export class VoiceLiveSession {
       throw new Error('Missing local SDP offer')
     }
 
-    if (this.finalized) { return }
+    if (this.finalized) {
+      return
+    }
 
     const response = await hermesApiAs<{
       ok: boolean
@@ -369,6 +400,7 @@ export class VoiceLiveSession {
       call_id?: string
       call_token?: string
       session_id?: string
+      output_gain?: number
     }>(this.callOwner, {
       body: { history, sdp, session_id: ownerSessionId },
       method: 'POST',
@@ -380,6 +412,7 @@ export class VoiceLiveSession {
       throw new Error('GPT-Live session creation failed')
     }
 
+    applyVoiceOutputGain(this.callOwner, response.output_gain, initialOutputLevel)
     this.wireProtocol = response.wire_protocol ?? 'live-api'
     this.sessionId = response.session?.id ?? null
 
@@ -412,9 +445,13 @@ export class VoiceLiveSession {
     this.startupStage = 'permission'
     const permitted = await window.hermesDesktop?.requestMicrophoneAccess?.()
 
-    if (this.finalized) { return }
+    if (this.finalized) {
+      return
+    }
 
-    if (permitted === false) { throw new DOMException('Microphone access denied', 'NotAllowedError') }
+    if (permitted === false) {
+      throw new DOMException('Microphone access denied', 'NotAllowedError')
+    }
 
     this.startupStage = 'capture'
 
@@ -457,14 +494,19 @@ export class VoiceLiveSession {
 
   private armSpeakingProbe(stream: MediaStream): void {
     try {
-      const context = new AudioContext()
-      void context.resume().catch(() => undefined)
-      const source = context.createMediaStreamSource(stream)
-      const analyser = context.createAnalyser()
-      analyser.fftSize = 512
-      source.connect(analyser)
-      this.audioContext = context
-      this.analyser = analyser
+      this.clearOutput()
+      const output = createVoiceLiveOutput(stream, voiceOutputLevel(this.callOwner!).get().gain)
+      this.output = output
+      const analyser = output.analyser
+      // Keep the media element alive for WebRTC, but never play the track twice.
+      this.audio.muted = true
+      void output.resume().catch(() => {
+        if (this.output === output) {
+          this.clearOutput()
+          this.audio.muted = false
+          this.audio.volume = Math.min(1, voiceOutputLevel(this.callOwner!).get().gain)
+        }
+      })
       const buffer = new Uint8Array(analyser.frequencyBinCount)
       let quietFrames = 0
 
@@ -488,16 +530,27 @@ export class VoiceLiveSession {
         }
       }, 100)
     } catch {
-      // No analyser → no speaking indicator; the conversation still works.
+      // Device/context failure keeps unamplified HTML playback available.
+      this.audio.muted = false
+      this.audio.volume = Math.min(1, voiceOutputLevel(this.callOwner!).get().gain)
     }
+  }
+
+  private clearOutput(): void {
+    if (this.speakingProbe) {
+      window.clearInterval(this.speakingProbe)
+      this.speakingProbe = null
+    }
+
+    this.output?.close()
+    this.output = null
+    this.lastSpeaking = false
   }
 
   private async attachLease(): Promise<void> {
     const call = this.call!
 
-    const url = new URL(
-      await resolveVoiceLiveCallUrl(this.callOwner!, call.id)
-    )
+    const url = new URL(await resolveVoiceLiveCallUrl(this.callOwner!, call.id))
 
     url.searchParams.set('session_id', call.sessionId)
 
@@ -806,10 +859,9 @@ export class VoiceLiveSession {
       this.closeTimer = null
     }
 
-    if (this.speakingProbe) {
-      window.clearInterval(this.speakingProbe)
-      this.speakingProbe = null
-    }
+    this.releaseOutputLevel?.()
+    this.releaseOutputLevel = null
+    this.clearOutput()
 
     this.silentInputSource?.stop()
     this.silentInputSource?.disconnect()
@@ -818,8 +870,6 @@ export class VoiceLiveSession {
     this.silentInputSource = null
     this.silentInputStream = null
     this.silentInputContext = null
-    this.analyser?.disconnect()
-    void this.audioContext?.close().catch(() => undefined)
     this.microphone?.getTracks().forEach(track => track.stop())
     this.releaseStandby?.()
     this.releaseStandby = undefined
