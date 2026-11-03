@@ -1,6 +1,9 @@
-import { hermesApiAs, type OwnerScope, ownerScoped, profileScoped, type ResolvedOwner } from '@/api/client'
+import { CANONICAL_GATEWAY_PROTOCOL } from '@/api/canonical-protocol'
+import { hermesApiAs, type OwnerScope, profileScoped, type ResolvedOwner, resolveOwnerNow } from '@/api/client'
 import { hermesApi } from '@/hermes'
 import { pauseBackgroundVoice } from '@/lib/canvas-voice-ownership'
+import { resolveSiblingWsUrl } from '@/lib/sibling-ws-url'
+import { delegationRequest, LiveTranscriptAccumulator, liveWireEvent } from '@/lib/voice-live-protocol'
 
 /**
  * GPT-Live voice chat: the full-duplex voice frontend that DELEGATES to Hermes.
@@ -28,26 +31,14 @@ export interface VoiceLiveStatus {
   reason: null | string
   model: string
   voice: string
+  auth?: 'codex-subscription' | 'api-key'
+  wire_protocol?: 'codex-v3' | 'live-api'
 }
 
 export interface LiveHistoryMessage {
   type: 'message'
   role: 'assistant' | 'developer' | 'user'
   content: Array<{ type: 'input_text' | 'output_text'; text: string }>
-}
-
-interface LiveServerEvent {
-  type: string
-  event_id?: string
-  client_event_id?: string
-  delta?: string
-  start_ms?: number
-  end_ms?: number
-  delegation?: { id: string; type: string; target: string }
-  error?: { type?: string; code?: null | string; message?: string; client_event_id?: string }
-  usage?: { seconds?: number }
-  reason?: string
-  session?: { id: string }
 }
 
 export interface LiveTranscriptFragment {
@@ -60,7 +51,7 @@ export interface LiveTranscriptFragment {
 export interface VoiceLiveHandlers {
   /** GPT-Live asked the backend (Hermes) for help. `context` is the recent
    *  transcript window, newest last — the delegation itself carries no text. */
-  onDelegation: (delegationId: string, context: LiveTranscriptFragment[]) => void
+  onDelegation: (delegationId: string, context: LiveTranscriptFragment[], prompt?: string) => void
   /** Vendor-side error. `fatal` when the session is gone. */
   onError: (message: string, fatal: boolean) => void
   /** `session.closed` arrived (or the transport dropped without it). */
@@ -96,7 +87,9 @@ export async function fetchVoiceLiveStatus(owner?: ResolvedOwner): Promise<null 
       mode: response.mode === 'gpt-live' ? 'gpt-live' : 'chained',
       model: response.model,
       reason: response.reason ?? null,
-      voice: response.voice
+      voice: response.voice,
+      auth: response.auth,
+      wire_protocol: response.wire_protocol
     }
   } catch {
     // Older backend without the endpoint → chained.
@@ -228,7 +221,13 @@ export class VoiceLiveSession {
   private finalized = false
   private started = false
   private eventCounter = 0
-  private transcript: LiveTranscriptFragment[] = []
+  private readonly transcript = new LiveTranscriptAccumulator()
+  private readonly delegations = new Set<string>()
+  private wireProtocol: 'live-api' | 'codex-v3' = 'live-api'
+  private lease: WebSocket | null = null
+  private leasePing: number | null = null
+  private call: { id: string; token: string; sessionId: string } | null = null
+  private callOwner: ResolvedOwner | null = null
   private speakingProbe: null | number = null
   private analyser: null | AnalyserNode = null
   private audioContext: null | AudioContext = null
@@ -267,7 +266,7 @@ export class VoiceLiveSession {
 
   /** Recent conversation, oldest first, bounded by time and count. */
   contextWindow(): LiveTranscriptFragment[] {
-    const last = this.transcript.at(-1)
+    const last = this.transcript.fragments.at(-1)
 
     if (!last) {
       return []
@@ -275,14 +274,19 @@ export class VoiceLiveSession {
 
     const floor = last.endMs - CONTEXT_WINDOW_MS
 
-    return this.transcript.filter(fragment => fragment.endMs >= floor).slice(-CONTEXT_MAX_FRAGMENTS)
+    return this.transcript.fragments.filter(fragment => fragment.endMs >= floor).slice(-CONTEXT_MAX_FRAGMENTS)
   }
 
-  async start(history: LiveHistoryMessage[]): Promise<void> {
+  async start(
+    history: LiveHistoryMessage[],
+    ownerSessionId?: string | null,
+    options: { microphone?: boolean } = {}
+  ): Promise<void> {
     if (this.peer) {
       throw new Error('GPT-Live session already started')
     }
 
+    this.callOwner = resolveOwnerNow(this.owner ?? undefined)
     this.releaseStandby = pauseBackgroundVoice()
     const connection = new RTCPeerConnection()
     this.peer = connection
@@ -299,20 +303,24 @@ export class VoiceLiveSession {
       }
     })
 
-    const microphone = await navigator.mediaDevices.getUserMedia({
-      audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true }
-    })
+    if (options.microphone === false) {
+      connection.addTransceiver('audio', { direction: 'recvonly' })
+    } else {
+      const microphone = await navigator.mediaDevices.getUserMedia({
+        audio: { autoGainControl: true, echoCancellation: true, noiseSuppression: true }
+      })
 
-    if (this.finalized) {
-      microphone.getTracks().forEach(track => track.stop())
+      if (this.finalized) {
+        microphone.getTracks().forEach(track => track.stop())
 
-      return
-    }
+        return
+      }
 
-    this.microphone = microphone
+      this.microphone = microphone
 
-    for (const track of this.microphone.getAudioTracks()) {
-      connection.addTrack(track, this.microphone)
+      for (const track of microphone.getAudioTracks()) {
+        connection.addTrack(track, microphone)
+      }
     }
 
     // Register the data channel before the offer so its m-line is negotiated.
@@ -335,13 +343,16 @@ export class VoiceLiveSession {
       throw new Error('Missing local SDP offer')
     }
 
-    const response = await hermesApi<{
+    const response = await hermesApiAs<{
       ok: boolean
       session?: { id: string }
       transport?: { sdp: string; type: string }
-    }>({
-      ...ownerScoped(this.owner ?? undefined),
-      body: { history, sdp },
+      wire_protocol?: 'live-api' | 'codex-v3'
+      call_id?: string
+      call_token?: string
+      session_id?: string
+    }>(this.callOwner, {
+      body: { history, sdp, session_id: ownerSessionId },
       method: 'POST',
       path: '/api/audio/voice-live/session',
       timeoutMs: 45_000
@@ -351,13 +362,38 @@ export class VoiceLiveSession {
       throw new Error('GPT-Live session creation failed')
     }
 
+    this.wireProtocol = response.wire_protocol ?? 'live-api'
     this.sessionId = response.session?.id ?? null
+
+    if (this.wireProtocol === 'codex-v3') {
+      if (!response.call_id || !response.call_token || !ownerSessionId) {
+        throw new Error('Codex voice did not return a conversation lease')
+      }
+
+      this.call = { id: response.call_id, token: response.call_token, sessionId: ownerSessionId }
+
+      if (this.finalized) {
+        this.releaseCall()
+
+        return
+      }
+
+      await this.attachLease()
+    }
+
+    if (this.finalized) {
+      return
+    }
+
     await connection.setRemoteDescription({ sdp: response.transport.sdp, type: 'answer' })
+    await this.waitUntilConnected()
+    this.started = !this.finalized
   }
 
   private armSpeakingProbe(stream: MediaStream): void {
     try {
       const context = new AudioContext()
+      void context.resume().catch(() => undefined)
       const source = context.createMediaStreamSource(stream)
       const analyser = context.createAnalyser()
       analyser.fftSize = 512
@@ -370,14 +406,16 @@ export class VoiceLiveSession {
       this.speakingProbe = window.setInterval(() => {
         analyser.getByteTimeDomainData(buffer)
         let peak = 0
+        let sumSquares = 0
 
         for (const sample of buffer) {
           peak = Math.max(peak, Math.abs(sample - 128))
+          sumSquares += (sample - 128) ** 2
         }
 
-        const loud = peak > 6
+        const loud = peak > 6 && Math.sqrt(sumSquares / buffer.length) > 1
         quietFrames = loud ? 0 : quietFrames + 1
-        const speaking = loud || quietFrames < 4
+        const speaking = loud || (this.lastSpeaking && quietFrames < 4)
 
         if (speaking !== this.lastSpeaking) {
           this.lastSpeaking = speaking
@@ -389,73 +427,198 @@ export class VoiceLiveSession {
     }
   }
 
-  private handleEvent(raw: string): void {
-    let event: LiveServerEvent
+  private async attachLease(): Promise<void> {
+    const call = this.call!
 
-    try {
-      event = JSON.parse(raw) as LiveServerEvent
-    } catch {
+    const url = new URL(
+      await resolveSiblingWsUrl(this.callOwner!, `/api/audio/voice-live/calls/${encodeURIComponent(call.id)}`)
+    )
+
+    url.searchParams.set('session_id', call.sessionId)
+
+    if (this.callOwner?.profile) {
+      url.searchParams.set('profile', this.callOwner.profile)
+    }
+
+    if (this.finalized) {
       return
     }
 
-    switch (event.type) {
-      case 'session.started':
-        this.started = true
-        this.sessionId = event.session?.id ?? this.sessionId
+    const ticket = url.searchParams.get('ticket')
+    const native = url.searchParams.has('native_dial')
 
+    if (native && !ticket) {
+      throw new Error('Native gateway requires a fresh private ticket')
+    }
+
+    if (native) {
+      url.searchParams.delete('ticket')
+    }
+
+    const socket = native
+      ? new WebSocket(url.toString(), [CANONICAL_GATEWAY_PROTOCOL, `hermes-gateway-ticket.${ticket}`])
+      : new WebSocket(url.toString())
+
+    this.lease = socket
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => reject(new Error('Codex voice connection timed out')), 10_000)
+
+      const fail = () => {
+        window.clearTimeout(timeout)
+        reject(new Error('Codex voice connection closed'))
+      }
+
+      socket.addEventListener('open', () =>
+        socket.send(JSON.stringify({ type: 'authenticate', call_token: call.token, session_id: call.sessionId }))
+      )
+      socket.addEventListener('message', ({ data }) => {
+        const event = liveWireEvent(String(data))
+
+        if (event?.type === 'lease.ready') {
+          window.clearTimeout(timeout)
+          this.leasePing = window.setInterval(() => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'ping' }))
+            }
+          }, 15_000)
+          resolve()
+        } else {
+          this.handleEvent(String(data))
+        }
+      })
+      socket.addEventListener('error', fail)
+      socket.addEventListener('close', () => {
+        fail()
+        this.finish('connection_lost', null)
+      })
+    })
+  }
+
+  private releaseCall(): void {
+    const call = this.call
+    this.call = null
+
+    if (call && this.callOwner) {
+      void hermesApiAs(this.callOwner, {
+        path: `/api/audio/voice-live/calls/${encodeURIComponent(call.id)}/close`,
+        method: 'POST',
+        body: { call_token: call.token, session_id: call.sessionId }
+      }).catch(() => undefined)
+    }
+  }
+
+  private handleEvent(raw: string): void {
+    if (this.finalized) {
+      return
+    }
+
+    const event = liveWireEvent(raw)
+
+    if (!event) {
+      return
+    }
+
+    const fragment = this.transcript.append(event)
+
+    if (fragment) {
+      this.handlers.onTranscript?.(fragment)
+
+      return
+    }
+
+    const delegation = delegationRequest(event)
+
+    if (delegation) {
+      if (!this.delegations.has(delegation.id)) {
+        this.delegations.add(delegation.id)
+        this.activeDelegationId = delegation.id
+        this.handlers.onDelegation(delegation.id, this.contextWindow(), delegation.prompt)
+      }
+
+      return
+    }
+
+    if (event.type === 'session.started') {
+      this.started = true
+      this.sessionId = event.session?.id ?? this.sessionId
+    } else if (event.type === 'error') {
+      const code = event.error?.code ?? ''
+
+      if (code === 'context_injection_incomplete') {
         return
+      }
 
-      case 'session.input_transcript.delta':
-      case 'session.output_transcript.delta': {
-        const fragment: LiveTranscriptFragment = {
-          endMs: event.end_ms ?? 0,
-          speaker: event.type === 'session.input_transcript.delta' ? 'user' : 'assistant',
-          startMs: event.start_ms ?? 0,
-          text: event.delta ?? ''
-        }
+      const fatal =
+        ['authentication_error', 'invalid_api_key', 'invalid_token', 'token_expired'].includes(code) ||
+        [401, 403].includes(event.error?.status ?? 0)
 
-        this.transcript.push(fragment)
+      this.handlers.onError(
+        fatal
+          ? 'Codex voice authorization failed. Sign in to Codex and try again.'
+          : (event.error?.message ?? 'Live voice error'),
+        fatal
+      )
 
-        if (this.transcript.length > 2_000) {
-          this.transcript.splice(0, this.transcript.length - 1_500)
-        }
+      if (fatal) {
+        this.finish('authorization_failed', null)
+      }
+    } else if (event.type === 'session.closed') {
+      this.finish(event.reason ?? 'closed', event.usage?.seconds ?? null)
+    }
+  }
 
+  /** Await the negotiated event channel before a user-triggered voice check. */
+  async waitUntilConnected(timeoutMs = 10_000): Promise<void> {
+    if (this.events?.readyState === 'open') {
+      return
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup()
+        reject(new Error('Не удалось соединиться с голосом'))
+      }, timeoutMs)
+
+      const opened = () => {
+        cleanup()
+        resolve()
+      }
+
+      const closed = () => {
+        cleanup()
+        reject(new Error('Голосовое соединение закрыто'))
+      }
+
+      const cleanup = () => {
+        window.clearTimeout(timeout)
+        this.events?.removeEventListener('open', opened)
+        this.events?.removeEventListener('close', closed)
+      }
+
+      this.events?.addEventListener('open', opened)
+      this.events?.addEventListener('close', closed)
+
+      if (this.finalized) {
+        closed()
+      }
+    })
+  }
+
+  /** A typed name-wake suffix enters the same live model as microphone speech. */
+  appendUserText(text: string): void {
+    const clean = text.trim()
+
+    if (clean && !this.finalized) {
+      this.appendContext(
+        null,
+        `The user said: ${JSON.stringify(clean)}. Respond to this request and delegate any worker task normally.`,
+        true
+      )
+      const fragment = this.transcript.append({ type: 'input_transcript.added', item: { text: clean } })
+
+      if (fragment) {
         this.handlers.onTranscript?.(fragment)
-
-        return
       }
-
-      case 'session.delegation.created': {
-        const id = event.delegation?.id
-
-        if (id) {
-          this.activeDelegationId = id
-          this.handlers.onDelegation(id, this.contextWindow())
-        }
-
-        return
-      }
-
-      case 'error': {
-        const code = event.error?.code ?? ''
-
-        // Late appends after our own close are expected noise.
-        if (code === 'context_injection_incomplete') {
-          return
-        }
-
-        this.handlers.onError(event.error?.message ?? 'GPT-Live error', false)
-
-        return
-      }
-
-      case 'session.closed':
-        this.finish(event.reason ?? 'closed', event.usage?.seconds ?? null)
-
-        return
-
-      default:
-        return
     }
   }
 
@@ -464,6 +627,12 @@ export class VoiceLiveSession {
     const text = content.replace(/\s+/g, ' ').trim().slice(0, APPEND_CHAR_LIMIT)
 
     if (text) {
+      if (this.wireProtocol === 'codex-v3') {
+        this.appendContext(delegationId, text, false)
+
+        return
+      }
+
       this.send({
         content: text,
         delegation_id: delegationId,
@@ -476,6 +645,12 @@ export class VoiceLiveSession {
   /** A result the voice should say aloud (paraphrased). */
   speak(delegationId: null | string, content: string): void {
     for (const chunk of chunkForCommentary(content)) {
+      if (this.wireProtocol === 'codex-v3') {
+        this.appendContext(delegationId, chunk, true)
+
+        continue
+      }
+
       this.send({
         content: chunk,
         delegation_id: delegationId,
@@ -485,11 +660,26 @@ export class VoiceLiveSession {
     }
   }
 
+  private appendContext(delegationId: null | string, text: string, speakable: boolean): void {
+    this.send({
+      type: delegationId ? 'delegation.context.append' : 'session.context.append',
+      ...(delegationId ? { delegation_item_id: delegationId } : {}),
+      channel: speakable ? 'speakable' : 'commentary',
+      content: [{ type: 'input_text', text }]
+    })
+  }
+
   /** Steer the live persona mid-conversation (session-wide). */
   instruct(content: string): void {
     const text = content.trim().slice(0, APPEND_CHAR_LIMIT)
 
     if (text) {
+      if (this.wireProtocol === 'codex-v3') {
+        this.appendContext(null, text, false)
+
+        return
+      }
+
       this.send({
         content: text,
         delegation_id: null,
@@ -504,6 +694,10 @@ export class VoiceLiveSession {
       track.enabled = !muted
     }
 
+    if (this.wireProtocol === 'codex-v3') {
+      return
+    }
+
     this.send({
       event_id: this.nextEventId(muted ? 'mute' : 'unmute'),
       type: muted ? 'session.input_audio.mute' : 'session.input_audio.unmute'
@@ -516,7 +710,7 @@ export class VoiceLiveSession {
       return
     }
 
-    if (!this.send({ type: 'session.close' })) {
+    if (this.wireProtocol === 'codex-v3' || !this.send({ type: 'session.close' })) {
       this.finish('close_requested', null)
 
       return
@@ -531,6 +725,15 @@ export class VoiceLiveSession {
     }
 
     this.finalized = true
+
+    if (this.leasePing) {
+      window.clearInterval(this.leasePing)
+      this.leasePing = null
+    }
+
+    this.releaseCall()
+    this.lease?.close()
+    this.lease = null
 
     if (this.closeTimer) {
       window.clearTimeout(this.closeTimer)

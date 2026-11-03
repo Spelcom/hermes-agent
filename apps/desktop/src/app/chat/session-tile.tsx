@@ -250,6 +250,7 @@ export function TileChat({
   ownerRoute: pinnedOwner,
   embedded,
   voiceStartToken,
+  initialVoiceText,
   initialCommand,
   voiceLiveStatus,
   composerTarget
@@ -260,6 +261,7 @@ export function TileChat({
   ownerRoute?: SessionOwnerRoute
   embedded?: boolean
   voiceStartToken?: string | number
+  initialVoiceText?: { token: string | number; text: string }
   initialCommand?: { token: string | number; text: string }
   voiceLiveStatus?: VoiceLiveStatus | null
   composerTarget?: string
@@ -309,6 +311,7 @@ export function TileChat({
       attachments,
       embedded,
       voiceStartToken,
+      initialVoiceText,
       voiceLiveStatus,
       requestGateway: requestTileGateway,
       connectionId: ownerRoute?.connectionId || undefined,
@@ -320,6 +323,7 @@ export function TileChat({
       composerTarget,
       embedded,
       voiceStartToken,
+      initialVoiceText,
       voiceLiveStatus,
       requestTileGateway,
       ownerRoute?.connectionId,

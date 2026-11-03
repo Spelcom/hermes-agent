@@ -5,19 +5,12 @@ full-duplex voice model (OpenAI ``gpt-live-1``) that owns the microphone and the
 delegates every real request to Hermes as its *client-delegation* backend. Hermes stays the
 agent: whatever model/provider the session has selected answers, with the full toolset.
 
-Division of labour (the Live API has no tools of its own in client mode):
+The renderer owns WebRTC media and delegates real requests to the current Hermes
+session. This module brokers the SDP without exposing credentials to the renderer.
+``voice.gpt_live.auth: codex-subscription`` uses the official Codex CLI's normal
+ChatGPT sign-in and its v3 voice protocol. ``auth: api-key`` explicitly selects the
+existing direct Live API lane. Neither lane falls back to the other.
 
-* the desktop renderer holds the WebRTC media session (mic in, speech out) and the data channel;
-* this module resolves WHICH credentials/voice/persona to use and performs the one server-side
-  step the API requires — exchanging the browser's SDP offer for an answer with the project key
-  (``POST /v1/live/sessions``), so the key never reaches the client;
-* the renderer turns each ``session.delegation.created`` into a normal ``prompt.submit`` on the
-  active session (surface ``voice-live``) and streams the reply back as
-  ``session.commentary.append`` — Hermes' answer is what the voice speaks.
-
-Vendor contract: https://developers.openai.com/api/docs/guides/live (+ live-delegation,
-voice-webrtc). Billing is $0.05/min of session time on the OpenAI key, separate from the
-Hermes turn.
 """
 
 from __future__ import annotations
@@ -128,20 +121,58 @@ def live_instructions(live: Optional[dict[str, Any]] = None) -> str:
     return f"{LIVE_PERSONA}\n\n{extra}" if extra else LIVE_PERSONA
 
 
+def live_auth(live: dict[str, Any]) -> str:
+    """Select one explicit lane. Missing auth preserves existing API-key profiles."""
+    value = str(live.get("auth") or "api-key").strip().lower()
+    if value in {"codex", "codex-subscription"}:
+        return "codex-subscription"
+    if value in {"api-key", "api_key", "openai"}:
+        return "api-key"
+    raise ValueError("Unknown voice.gpt_live.auth; choose codex-subscription or api-key")
+
+
 def resolve_gpt_live_status() -> dict[str, Any]:
-    """Non-secret readiness verdict for the client: which mode is selected and whether GPT-Live
-    can start (a key resolves). Never returns the key."""
+    """Passive readiness. Native account status is checked only on explicit call start."""
     voice = _voice_section()
-    mode = voice_chat_mode(voice)
     live = _live_section(voice)
+    auth = live_auth(live)
+    if auth == "codex-subscription":
+        from tools.voice_live_codex import DEFAULT_MODEL, INSTALL_HINT, codex_binary
+        binary = codex_binary(str(live.get("codex_binary") or ""))
+        return {
+            "mode": voice_chat_mode(voice), "auth": auth, "wire_protocol": "codex-v3",
+            "available": bool(binary), "reason": None if binary else INSTALL_HINT,
+            "model": DEFAULT_MODEL, "voice": str(live.get("voice") or DEFAULT_LIVE_VOICE),
+            "account_status": "checked-on-start",
+        }
     api_key, _base = _resolve_credentials(live)
     return {
-        "mode": mode,
+        "mode": voice_chat_mode(voice), "auth": auth, "wire_protocol": "live-api",
         "available": bool(api_key),
         "reason": None if api_key else "no OpenAI API key (set OPENAI_API_KEY or voice.gpt_live.api_key)",
         "model": str(live.get("model") or DEFAULT_LIVE_MODEL),
         "voice": str(live.get("voice") or DEFAULT_LIVE_VOICE),
     }
+
+
+async def create_webrtc_session_async(sdp_offer: str, history: Optional[list] = None,
+                                      session_id: str = "") -> dict[str, Any]:
+    """The caller binds the request's await-safe config profile scope for this call."""
+    import asyncio
+    live = _live_section()
+    if live_auth(live) == "api-key":
+        result = await asyncio.to_thread(create_webrtc_session, sdp_offer, history)
+        return {**result, "auth": "api-key", "wire_protocol": "live-api"}
+    from hermes_constants import get_hermes_home
+    from tools.voice_live_codex import INSTALL_HINT, codex_binary, create_managed_call
+    binary = codex_binary(str(live.get("codex_binary") or ""))
+    if not binary:
+        raise ValueError(INSTALL_HINT)
+    return await create_managed_call(
+        sdp_offer, profile=str(get_hermes_home().resolve()), session_id=session_id,
+        instructions=live_instructions(live), voice=str(live.get("voice") or DEFAULT_LIVE_VOICE),
+        binary=binary, history=history, agent_model=str(live.get("codex_agent_model") or "").strip(),
+    )
 
 
 def build_session_config(history: Optional[list] = None) -> dict[str, Any]:
@@ -167,6 +198,8 @@ def create_webrtc_session(sdp_offer: str, history: Optional[list] = None) -> dic
     status/detail) for a rejected request.
     """
     live = _live_section()
+    if live_auth(live) != "api-key":
+        raise ValueError("Codex subscription voice requires the native asynchronous broker")
     api_key, base_url = _resolve_credentials(live)
     if not api_key:
         raise ValueError("GPT-Live needs an OpenAI API key (OPENAI_API_KEY or voice.gpt_live.api_key)")

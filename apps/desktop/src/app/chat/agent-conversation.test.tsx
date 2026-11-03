@@ -87,3 +87,11 @@ it('a panel closed before hydration never mounts a composer or starts its microp
   expect(mocks.activate).not.toHaveBeenCalled()
   expect(mocks.release).toHaveBeenCalledOnce()
 })
+
+
+it('offers the microphone-free voice check for the backend canonical Codex subscription lane', async () => {
+  mocks.open.mockResolvedValue({ route, storedSessionId: 'stored', runtimeId: 'runtime', voiceLiveStatus: { mode: 'gpt-live', available: true, auth: 'codex-subscription', wire_protocol: 'codex-v3' }, release: mocks.release })
+  const panel = render(<AgentConversation route={route} />)
+  expect(await panel.findByRole('button', { name: 'Проверить голос' })).toBeTruthy()
+  expect(mocks.activate).not.toHaveBeenCalled()
+})

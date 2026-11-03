@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import type { AgentConversationProps } from '@/sdk/agent-conversation'
 
 import { captureAgentConversationRoute, openAgentConversationSession } from './agent-conversation-session'
+import { AgentVoiceCheck } from './agent-voice-check'
 import { buildTileView, TileChat } from './session-tile'
 
 type OpenedConversation = Awaited<ReturnType<typeof openAgentConversationSession>>
@@ -15,10 +16,12 @@ type OpenedConversation = Awaited<ReturnType<typeof openAgentConversationSession
 function ConversationContent({
   session,
   voiceStartToken,
+  initialVoiceText,
   initialCommand
 }: {
   session: OpenedConversation
   voiceStartToken?: string | number
+  initialVoiceText?: AgentConversationProps['initialVoiceText']
   initialCommand?: AgentConversationProps['initialCommand']
 }) {
   const id = useId()
@@ -29,6 +32,7 @@ function ConversationContent({
       composerTarget={`agent-conversation:${id}`}
       embedded
       initialCommand={initialCommand}
+      initialVoiceText={initialVoiceText}
       ownerRoute={session.route}
       runtimeId={session.runtimeId}
       storedSessionId={session.storedSessionId}
@@ -42,6 +46,7 @@ function ConversationContent({
 function OwnedConversation({
   route,
   voiceStartToken,
+  initialVoiceText,
   initialCommand,
   onClose,
   title,
@@ -90,13 +95,21 @@ function OwnedConversation({
           )}
         </div>
       )}
+      {session?.voiceLiveStatus?.auth === 'codex-subscription' && session.voiceLiveStatus.available && (
+        <AgentVoiceCheck route={session.route} sessionId={session.runtimeId} />
+      )}
       {error ? (
         <div className="p-4 text-sm" role="alert">
           <p>{error}</p>
           <Button onClick={() => setRetry(value => value + 1)}>{t.common.retry}</Button>
         </div>
       ) : session ? (
-        <ConversationContent initialCommand={initialCommand} session={session} voiceStartToken={voiceStartToken} />
+        <ConversationContent
+          initialCommand={initialCommand}
+          initialVoiceText={initialVoiceText}
+          session={session}
+          voiceStartToken={voiceStartToken}
+        />
       ) : (
         <div className="p-4 text-sm" role="status">
           {t.common.loading}

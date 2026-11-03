@@ -14,7 +14,9 @@ import { useVoiceLiveConversation } from './use-voice-live-conversation'
 // configured on the Bot's profile is the voice that answers (#117401).
 
 const constructed = vi.hoisted(() => ({
-  owners: [] as Array<null | { connectionId?: null | string; profile?: null | string }>
+  owners: [] as Array<null | { connectionId?: null | string; profile?: null | string }>,
+  sessions: [] as Array<{ appendUserText: ReturnType<typeof vi.fn> }>,
+  connected: null as Promise<void> | null
 }))
 
 vi.mock('@/lib/voice-live', async importOriginal => {
@@ -24,12 +26,15 @@ vi.mock('@/lib/voice-live', async importOriginal => {
     ...actual,
     VoiceLiveSession: class {
       close = vi.fn()
+      appendUserText = vi.fn()
+      waitUntilConnected = () => constructed.connected ?? Promise.resolve()
 
       constructor(
         _handlers: VoiceLiveHandlers,
         owner: null | { connectionId?: null | string; profile?: null | string } = null
       ) {
         constructed.owners.push(owner)
+        constructed.sessions.push(this)
       }
 
       async start(): Promise<void> {}
@@ -42,6 +47,8 @@ vi.mock('@/store/notifications', () => ({ notify: vi.fn(), notifyError: vi.fn() 
 afterEach(() => {
   cleanup()
   constructed.owners.length = 0
+  constructed.sessions.length = 0
+  constructed.connected = null
 })
 
 function mountLive(wrapper?: ({ children }: { children: ReactNode }) => ReactNode) {
@@ -76,5 +83,31 @@ describe('useVoiceLiveConversation — owner-routed session', () => {
     })
 
     expect(constructed.owners).toEqual([{ connectionId: 'gw-bots', profile: 'bot-adam' }])
+  })
+})
+
+
+describe('one-time voice wake text', () => {
+  function mountWake() {
+    return renderHook(({ token }) => useVoiceLiveConversation({ busy: false, enabled: true, sessionId: 'runtime-owner', initialVoiceText: { token, text: 'Проверь сервер' }, onSubmit: vi.fn(), consumePendingResponse: vi.fn(), pendingResponse: () => null, seedHistory: () => [] }), { initialProps: { token: 'wake-1' } })
+  }
+
+  it('appends the wake suffix once after the owned channel connects', async () => {
+    const hook = mountWake()
+    await act(async () => { await hook.result.current.start() })
+    const session = constructed.sessions.at(-1)!
+    expect(session.appendUserText).toHaveBeenCalledExactlyOnceWith('Проверь сервер')
+    hook.rerender({ token: 'wake-1' })
+    await act(async () => { await Promise.resolve() })
+    expect(session.appendUserText).toHaveBeenCalledTimes(1)
+  })
+  it('does not send queued text after the conversation closes', async () => {
+    let connect: () => void = () => undefined
+    constructed.connected = new Promise<void>(resolve => { connect = resolve })
+    const hook = mountWake()
+    await act(async () => { await hook.result.current.start() })
+    const session = constructed.sessions.at(-1)!
+    await act(async () => { await hook.result.current.end(); connect(); await Promise.resolve() })
+    expect(session.appendUserText).not.toHaveBeenCalled()
   })
 })

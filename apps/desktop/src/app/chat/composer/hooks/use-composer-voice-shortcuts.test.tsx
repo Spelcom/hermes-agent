@@ -45,7 +45,7 @@ vi.mock('./use-auto-speak-replies', () => ({ useAutoSpeakReplies: vi.fn() }))
 vi.mock('@/i18n', () => ({
   useI18n: () => ({
     t: {
-      notifications: { voice: {} },
+      notifications: { voice: { liveUnavailable: (reason: string) => reason } },
       assistant: { thread: { readAloudFailed: '' } },
       settings: { config: { autosaveFailed: '' } }
     }
@@ -170,6 +170,37 @@ describe('composer voice shortcuts', () => {
       expect(mocks.conversationEnabled.at(-1)).toBe(mode === 'chained')
     }
   )
+
+  it('keeps both engines off when the explicitly selected live engine is unavailable', () => {
+    renderComposers(
+      <ComposerScopeProvider
+        value={{
+          ...MAIN_COMPOSER_SCOPE,
+          embedded: true,
+          target: 'embedded',
+          voiceStartToken: 'click',
+          voiceLiveStatus: {
+            mode: 'gpt-live',
+            available: false,
+            reason: 'Sign in to Codex',
+            model: 'gpt-live-1-codex',
+            voice: 'default',
+            auth: 'codex-subscription'
+          }
+        }}
+      >
+        <Composer disabled={false} target="embedded" />
+      </ComposerScopeProvider>
+    )
+    expect(mocks.liveEnabled).not.toContain(true)
+    expect(mocks.conversationEnabled).not.toContain(true)
+  })
+
+  it('does not infer chained voice when an embedded owner status probe failed', () => {
+    renderComposers(<ComposerScopeProvider value={{ ...MAIN_COMPOSER_SCOPE, embedded: true, target: 'embedded', voiceStartToken: 'click', voiceLiveStatus: null }}><Composer disabled={false} target="embedded" /></ComposerScopeProvider>)
+    expect(mocks.liveEnabled).not.toContain(true)
+    expect(mocks.conversationEnabled).not.toContain(true)
+  })
 
   it('dictates only on the active visible target and ignores a disabled target', async () => {
     renderComposers(

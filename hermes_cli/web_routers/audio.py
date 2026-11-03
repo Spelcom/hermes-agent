@@ -28,6 +28,7 @@ from hermes_cli.web_models import (
     TTSSpeakRequest,
     TTSLeaseRequest,
     VoiceLiveSessionRequest,
+    VoiceLiveCloseRequest,
 )
 from typing import Any, Dict, Optional
 
@@ -218,18 +219,19 @@ async def get_voice_live_status(profile: Optional[str] = None):
 async def create_voice_live_session(payload: VoiceLiveSessionRequest, profile: Optional[str] = None):
     """Exchange the renderer's WebRTC SDP offer for a GPT-Live session answer.
 
-    The project API key stays on this host; the renderer only receives the session id and the
-    SDP answer. Client delegation is fixed at creation: every ``session.delegation.created`` the
-    renderer receives becomes a Hermes turn on the session it belongs to.
+    Native subscription auth stays in the official CLI; explicit API-key auth stays
+    on this host. The renderer receives the SDP and protocol capability, and every
+    voice delegation becomes a normal Hermes turn on its captured session.
     """
-    from tools.voice_live import create_webrtc_session
+    from tools.voice_live import create_webrtc_session_async
     # Validate emptiness only: the vendor's SDP parser needs the offer byte-exact, including the
     # trailing CRLF (a stripped offer answers 400 "failed to unmarshal SDP: EOF").
     sdp = payload.sdp or ""
     if not sdp.strip():
         raise HTTPException(status_code=400, detail="An SDP offer is required")
     try:
-        result = await _run_config_scoped(profile, lambda: create_webrtc_session(sdp, payload.history))
+        with _config_profile_scope(profile):
+            result = await create_webrtc_session_async(sdp, payload.history, payload.session_id)
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except RuntimeError as exc:
@@ -798,3 +800,95 @@ async def speak_stream_ws(ws: WebSocket) -> None:
         pump.cancel()
         with contextlib.suppress(Exception):
             await ws.close()
+
+
+@router.post("/api/audio/voice-live/calls/{call_id}/close")
+async def close_voice_live_call(call_id: str, payload: VoiceLiveCloseRequest,
+                                profile: Optional[str] = None):
+    from hermes_constants import get_hermes_home
+    from tools.voice_live_codex import CallOwnershipError, get_managed_call, stop_managed_call
+    with _config_profile_scope(profile):
+        owner = str(get_hermes_home().resolve())
+        try:
+            managed = get_managed_call(call_id, payload.call_token, owner, payload.session_id)
+        except CallOwnershipError:
+            raise HTTPException(status_code=404, detail="Voice call not found") from None
+    await stop_managed_call(managed)
+    return {"ok": True}
+
+
+@router.websocket("/api/audio/voice-live/calls/{call_id}")
+async def voice_live_call_ws(ws: WebSocket, call_id: str):
+    """Authenticated call lease: disconnect/idle ends only this owned Codex child.
+
+    The call capability is sent in the first frame, separate from the gateway's
+    ordinary WS authentication, so it never appears in proxy URL access logs.
+    """
+    if not _ws_auth_ok(ws):
+        await ws.close(code=4401)
+        return
+    if not _ws_request_is_allowed(ws):
+        await ws.close(code=4403)
+        return
+    from hermes_constants import get_hermes_home
+    from tools.voice_live_codex import (
+        CallOwnershipError, LEASE_IDLE_TIMEOUT_S, get_managed_call, stop_managed_call,
+    )
+    profile = (ws.query_params.get("profile") or "").strip() or None
+    managed = None
+    forwarder = None
+    await ws.accept()
+    try:
+        async with asyncio.timeout(5):
+            authentication = await ws.receive_json()
+        with _config_profile_scope(profile):
+            owner = str(get_hermes_home().resolve())
+            if not isinstance(authentication, dict) or authentication.get("type") != "authenticate":
+                raise CallOwnershipError("Voice call not found")
+            candidate = get_managed_call(
+                call_id, str(authentication.get("call_token") or ""), owner,
+                str(authentication.get("session_id") or ""),
+            )
+            # A duplicate lease must not replace or close the first owner's socket.
+            if candidate.attached:
+                raise CallOwnershipError("Voice call not found")
+            candidate.attached = True
+            managed = candidate
+        await ws.send_json({"type": "lease.ready"})
+
+        async def forward():
+            try:
+                while True:
+                    event = await managed.events.get()
+                    if event is None:
+                        break
+                    await ws.send_json(event)
+            finally:
+                with contextlib.suppress(Exception):
+                    await ws.close()
+
+        forwarder = asyncio.create_task(forward())
+        while True:
+            async with asyncio.timeout(LEASE_IDLE_TIMEOUT_S):
+                event = await ws.receive_json()
+            if isinstance(event, dict) and event.get("type") == "ping":
+                await ws.send_json({"type": "pong"})
+            elif isinstance(event, dict) and event.get("type") == "close":
+                break
+            else:
+                await ws.close(code=4400)
+                break
+    except (CallOwnershipError, HTTPException):
+        await ws.close(code=4404)
+    except (TimeoutError, ValueError):
+        with contextlib.suppress(Exception):
+            await ws.close(code=4408)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        # Start cancellation-safe child teardown before awaiting any socket task.
+        if managed is not None:
+            await stop_managed_call(managed)
+        if forwarder is not None:
+            forwarder.cancel()
+            await asyncio.gather(forwarder, return_exceptions=True)

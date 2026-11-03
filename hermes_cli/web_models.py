@@ -241,6 +241,11 @@ class VoiceLiveSessionRequest(BaseModel):
     text turns (``{"type":"message","role":..,"content":[..]}``) to seed the live voice model."""
     sdp: str
     history: Optional[list[dict[str, Any]]] = None
+    session_id: str = Field(default="", max_length=256)
+
+class VoiceLiveCloseRequest(BaseModel):
+    call_token: str = Field(max_length=256)
+    session_id: str = Field(max_length=256)
 
 class TTSLeaseRequest(BaseModel):
     """POST /api/audio/tts-lease: ``lease`` names the toggle/surface holding the lease

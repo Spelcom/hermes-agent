@@ -42,6 +42,7 @@ export interface ComposerScope {
   embedded?: boolean
   /** Fresh token supplied only by an explicit user voice-start gesture. */
   voiceStartToken?: string | number
+  initialVoiceText?: { token: string | number; text: string }
   /** An embedded owner's probed voice mode; null means use chained voice. */
   voiceLiveStatus?: VoiceLiveStatus | null
   requestGateway?: GatewayRequester

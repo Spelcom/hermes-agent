@@ -18,6 +18,7 @@ import { ReasoningPill } from './reasoning-pill'
 import { StartVoiceButton } from './start-voice-button'
 import type { ChatBarState, VoiceStatus } from './types'
 import { VoiceFan } from './voice-fan'
+import { VoiceLiveCaptions } from './voice-live-captions'
 import { VoiceMenu } from './voice-menu'
 
 // Re-exported: `context-menu.tsx` and other row neighbours have always reached
@@ -26,6 +27,9 @@ export { ACTIVE_ICON_BTN, GHOST_ICON_BTN, ICON_BTN, PRIMARY_ICON_BTN } from './c
 
 interface ConversationProps {
   active: boolean
+  connecting?: boolean
+  live?: boolean
+  transcript?: Array<{ speaker: 'user' | 'assistant'; text: string }>
   level: number
   muted: boolean
   status: ConversationStatus
@@ -80,7 +84,12 @@ export function ComposerControls({
   const hudMode = useStore($hudMode)
 
   if (conversation.active) {
-    return <ConversationPill {...conversation} disabled={disabled} />
+    return (
+      <>
+        <VoiceLiveCaptions active={conversation.active} transcript={conversation.transcript} />
+        <ConversationPill {...conversation} disabled={disabled} />
+      </>
+    )
   }
 
   const showVoicePrimary = !busy && !hasComposerPayload
@@ -270,6 +279,8 @@ function HudWindowButtons() {
 
 function ConversationPill({
   disabled,
+  connecting,
+  live,
   level,
   muted,
   onEnd,
@@ -295,6 +306,11 @@ function ConversationPill({
 
   return (
     <div className="ml-auto flex shrink-0 items-center gap-(--composer-control-gap)">
+      {live && (
+        <span className="text-xs text-muted-foreground" role="status">
+          {connecting ? 'Соединяюсь…' : 'В разговоре'}
+        </span>
+      )}
       {/* Keep the ear visible during voice chat — shown paused, since the
           conversation holds the mic (the one time wake must not listen). */}
       <WakeWordButton disabled={disabled} pausedForVoice />

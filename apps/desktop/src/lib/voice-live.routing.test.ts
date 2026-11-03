@@ -96,6 +96,6 @@ describe('GPT-Live owner routing', () => {
     expect(plain.path).toBe('/api/audio/voice-live/session')
     expect(plain.profile).toBe('research')
     expect(plain.connectionId).toBe('gw-active')
-    expect(plain.priority).toBeUndefined()
+    expect(plain.priority).toBe('foreground')
   })
 })

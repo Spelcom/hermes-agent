@@ -25,6 +25,8 @@ interface PendingVoiceResponse {
 
 interface VoiceLiveConversationOptions {
   busy: boolean
+  sessionId?: string | null
+  initialVoiceText?: { token: string | number; text: string }
   enabled: boolean
   onFatalError?: () => void
   /** Interrupt the in-flight Hermes turn (Stop-button seam). Fired when a new
@@ -41,6 +43,17 @@ interface VoiceLiveConversationOptions {
   /** Names of tools currently running in the turn (quiet progress for the voice). */
   activeToolLabel?: () => null | string
   beforeMicOpen?: () => Promise<void> | void
+}
+
+export function isFillerDelegation(text: string): boolean {
+  const clean = text
+    .toLocaleLowerCase()
+    .replace(/[.!?,…]+/g, '')
+    .trim()
+
+  return /^(привет|здравствуй(те)?|алло|ага|угу|да|нет|ок(ей)?|хорошо|спасибо|слышишь меня|ты (меня )?слышишь|как дела|hello|hi|hey|okay|ok|thanks|thank you)$/.test(
+    clean
+  )
 }
 
 /** Turn transcript fragments into the Hermes turn: `prompt` is what the user
@@ -103,6 +116,8 @@ export function liveEndedMessage(
  */
 export function useVoiceLiveConversation({
   busy,
+  sessionId,
+  initialVoiceText,
   enabled,
   onFatalError,
   onInterrupt,
@@ -119,6 +134,11 @@ export function useVoiceLiveConversation({
   const [status, setStatus] = useState<ConversationStatus>('idle')
   const [muted, setMuted] = useState(false)
   const [level, setLevel] = useState(0)
+  const [connecting, setConnecting] = useState(false)
+  const [transcript, setTranscript] = useState<Array<{ speaker: 'user' | 'assistant'; text: string }>>([])
+  const initialTextTokenRef = useRef<string | number | undefined>(undefined)
+  const queuedRef = useRef<Array<{ id: string; context: LiveTranscriptFragment[]; prompt?: string }>>([])
+  const pumpRef = useRef<() => void>(() => undefined)
   // Mirrors delegationRef for the reply-drive effect: a new delegation must
   // restart the feed loop, and a ref write alone does not re-render.
   const [activeDelegation, setActiveDelegation] = useState<null | string>(null)
@@ -214,6 +234,8 @@ export function useVoiceLiveConversation({
     }
 
     userUtteranceRef.current = ''
+    queuedRef.current = []
+    setConnecting(false)
     const session = sessionRef.current
     sessionRef.current = null
     setDelegation(null)
@@ -246,12 +268,29 @@ export function useVoiceLiveConversation({
       return
     }
 
+    const callOwner = { ...ownerRef.current }
+    const callSessionId = sessionId
+    setTranscript([])
+    setConnecting(true)
+
     const session = new VoiceLiveSession(
       {
         // The voice model answers a bare "stop" itself (it just goes quiet) and
         // never delegates it, so the spoken stop phrase is judged on the user
         // transcript once the utterance settles.
         onTranscript: fragment => {
+          if (sessionRef.current !== session) {
+            return
+          }
+
+          setTranscript(items => {
+            const last = items.at(-1)
+
+            return last?.speaker === fragment.speaker
+              ? [...items.slice(-11, -1), { ...last, text: last.text + fragment.text }]
+              : [...items.slice(-11), { speaker: fragment.speaker, text: fragment.text }]
+          })
+
           if (fragment.speaker !== 'user') {
             return
           }
@@ -281,6 +320,8 @@ export function useVoiceLiveConversation({
           sessionRef.current = null
           setDelegation(null)
           setStatus('idle')
+          setConnecting(false)
+          queuedRef.current = []
 
           if (reason !== 'close_requested') {
             notify({
@@ -291,41 +332,17 @@ export function useVoiceLiveConversation({
             latest.current.onFatalError?.()
           }
         },
-        onDelegation: (delegationId, context) => {
-          if (sessionRef.current !== session) {
+        onDelegation: (delegationId, context, prompt) => {
+          if (
+            sessionRef.current !== session ||
+            queuedRef.current.some(item => item.id === delegationId) ||
+            delegationRef.current === delegationId
+          ) {
             return
           }
 
-          const { context: voiceContext, prompt } = delegationPrompt(context)
-
-          // A spoken stop command ends the conversation instead of becoming a turn.
-          if (prompt && isVoiceStopCommand(prompt)) {
-            void end()
-            latest.current.onStopWord?.()
-
-            return
-          }
-
-          // A newer request supersedes an in-flight turn: stop it so the answer
-          // the voice speaks is for what the user asked last.
-          if (busyRef.current) {
-            void latest.current.onInterrupt?.()
-          }
-
-          setDelegation(delegationId)
-          spokenResponseIdRef.current = null
-          spokenLengthRef.current = 0
-          lastToolLabelRef.current = null
-          turnObservedRef.current = false
-          submittedAtRef.current = Date.now()
-          latest.current.consumePendingResponse()
-          refreshStatus()
-          void Promise.resolve(latest.current.onSubmit(prompt, voiceContext)).catch(error => {
-            notifyError(error, voiceCopy.liveDelegationFailed)
-            session.speak(delegationId, 'Sorry, I could not reach Hermes for that request.')
-            setDelegation(null)
-            refreshStatus()
-          })
+          queuedRef.current.push({ id: delegationId, context, prompt })
+          pumpRef.current()
         },
         onError: (message, fatal) => {
           notify({ kind: fatal ? 'error' : 'warning', message, title: voiceCopy.liveError })
@@ -336,8 +353,57 @@ export function useVoiceLiveConversation({
           refreshStatus()
         }
       },
-      ownerRef.current
+      callOwner
     )
+
+    pumpRef.current = () => {
+      if (sessionRef.current !== session || delegationRef.current || busyRef.current) {
+        return
+      }
+
+      const next = queuedRef.current.shift()
+
+      if (!next) {
+        return
+      }
+
+      const { context: voiceContext, prompt: transcriptPrompt } = delegationPrompt(next.context)
+      const prompt = next.prompt || transcriptPrompt
+
+      if (isVoiceStopCommand(prompt)) {
+        void end()
+        latest.current.onStopWord?.()
+
+        return
+      }
+
+      if (!prompt || isFillerDelegation(prompt)) {
+        session.think(next.id, 'Continue the conversation naturally; no worker task is needed.')
+        pumpRef.current()
+
+        return
+      }
+
+      setDelegation(next.id)
+      spokenResponseIdRef.current = null
+      spokenLengthRef.current = 0
+      lastToolLabelRef.current = null
+      turnObservedRef.current = false
+      submittedAtRef.current = Date.now()
+      latest.current.consumePendingResponse()
+      refreshStatus()
+      void Promise.resolve(latest.current.onSubmit(prompt, voiceContext)).catch(error => {
+        if (sessionRef.current !== session || delegationRef.current !== next.id) {
+          return
+        }
+
+        notifyError(error, voiceCopy.liveDelegationFailed)
+        session.speak(next.id, 'Не удалось получить ответ. Попробуйте ещё раз.')
+        setDelegation(null)
+        refreshStatus()
+        pumpRef.current()
+      })
+    }
 
     sessionRef.current = session
     startingRef.current = false
@@ -345,7 +411,7 @@ export function useVoiceLiveConversation({
     setStatus('thinking')
 
     try {
-      await session.start(latest.current.seedHistory())
+      await session.start(latest.current.seedHistory(), callSessionId)
 
       if (sessionRef.current !== session || startEpochRef.current !== epoch) {
         session.close()
@@ -353,6 +419,7 @@ export function useVoiceLiveConversation({
         return
       }
 
+      setConnecting(false)
       refreshStatus()
     } catch (error) {
       if (sessionRef.current === session) {
@@ -370,9 +437,10 @@ export function useVoiceLiveConversation({
       // 'Missing local SDP offer', API errors) — those keep their own message.
       notifyError(error instanceof DOMException ? micError(error, voiceCopy) : error, voiceCopy.couldNotStartSession)
       setStatus('idle')
+      setConnecting(false)
       latest.current.onFatalError?.()
     }
-  }, [end, refreshStatus, setDelegation, voiceCopy])
+  }, [end, refreshStatus, sessionId, setDelegation, voiceCopy])
 
   // Drive the reply back into the voice: stream commentary as Hermes writes
   // it (sentence-chunked), quiet tool progress as thinking appends, and clear
@@ -383,6 +451,8 @@ export function useVoiceLiveConversation({
     const delegationId = delegationRef.current
 
     if (!session || !delegationId) {
+      pumpRef.current()
+
       return undefined
     }
 
@@ -435,6 +505,7 @@ export function useVoiceLiveConversation({
         latest.current.consumePendingResponse()
         setDelegation(null)
         refreshStatus()
+        pumpRef.current()
 
         return
       }
@@ -452,6 +523,7 @@ export function useVoiceLiveConversation({
 
         setDelegation(null)
         refreshStatus()
+        pumpRef.current()
       }
     }
 
@@ -460,6 +532,32 @@ export function useVoiceLiveConversation({
 
     return () => window.clearInterval(timer)
   }, [activeDelegation, busy, refreshStatus, setDelegation, status])
+
+  // eslint-disable-next-line no-restricted-syntax -- consumed user-gesture token; not a reactive value mirror
+  useEffect(() => {
+    const session = sessionRef.current
+
+    if (
+      !enabled ||
+      connecting ||
+      !session ||
+      !initialVoiceText ||
+      initialTextTokenRef.current === initialVoiceText.token
+    ) {
+      return
+    }
+
+    initialTextTokenRef.current = initialVoiceText.token
+    const epoch = startEpochRef.current
+    void session
+      .waitUntilConnected()
+      .then(() => {
+        if (sessionRef.current === session && startEpochRef.current === epoch && enabledRef.current) {
+          session.appendUserText(initialVoiceText.text)
+        }
+      })
+      .catch(() => undefined)
+  }, [connecting, enabled, initialVoiceText])
 
   const toggleMute = useCallback(() => {
     setMuted(value => {
@@ -488,7 +586,7 @@ export function useVoiceLiveConversation({
     wasEnabledRef.current = enabled
   }, [enabled, end, start])
 
-  useEffect(() => () => void end(), [end])
+  useEffect(() => () => void end(), [end, ownerConnectionId, ownerProfile, sessionId])
 
-  return { end, level, muted, start, status, stopTurn, toggleMute }
+  return { connecting, transcript, end, level, muted, start, status, stopTurn, toggleMute }
 }

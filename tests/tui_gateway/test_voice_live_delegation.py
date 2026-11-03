@@ -63,7 +63,7 @@ class TestSessionCreation:
             return _Resp(json.dumps({"session": {"id": "live_x"}, "transport": {"type": "webrtc", "sdp": "answer"}}).encode())
 
         monkeypatch.setattr(voice_live.urllib.request, "urlopen", fake_urlopen)
-        monkeypatch.setattr(voice_live, "_live_section", lambda voice=None: {"voice": "willow", "instructions": "Speak Spanish."})
+        monkeypatch.setattr(voice_live, "_live_section", lambda voice=None: {"auth": "api-key", "voice": "willow", "instructions": "Speak Spanish."})
         monkeypatch.setattr(voice_live, "_resolve_credentials", lambda live: ("sk-test", "https://api.example/v1"))
 
         result = voice_live.create_webrtc_session("v=0 offer", history=[{"type": "message", "role": "user", "content": []}])
@@ -80,6 +80,7 @@ class TestSessionCreation:
         assert "sk-test" not in json.dumps(result)
 
     def test_missing_key_refuses_before_any_network(self, monkeypatch):
+        monkeypatch.setattr(voice_live, "_live_section", lambda voice=None: {"auth": "api-key"})
         monkeypatch.setattr(voice_live, "_resolve_credentials", lambda live: ("", voice_live.DEFAULT_LIVE_BASE_URL))
         monkeypatch.setattr(voice_live.urllib.request, "urlopen", lambda *a, **k: pytest.fail("must not call the vendor"))
 

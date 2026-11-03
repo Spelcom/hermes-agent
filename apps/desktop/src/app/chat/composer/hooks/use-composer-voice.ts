@@ -75,7 +75,7 @@ export function useComposerVoice({
 }: UseComposerVoiceArgs) {
   const { t } = useI18n()
   // A tile's composer speaks ITS transcript, not the primary chat's.
-  const { $messages, embedded, voiceLiveStatus, voiceStartToken } = useComposerScope()
+  const { $messages, embedded, voiceLiveStatus, voiceStartToken, initialVoiceText } = useComposerScope()
 
   // Wake the voice loop once when a pending reply first becomes speakable,
   // without re-rendering the composer for every streamed token. The live
@@ -251,7 +251,9 @@ export function useComposerVoice({
     onStopWord: () => setVoiceConversationActive(false),
     onSubmit: submitLiveDelegation,
     pendingResponse: pendingTurnResponse,
-    seedHistory: seedLiveHistory
+    seedHistory: seedLiveHistory,
+    sessionId,
+    initialVoiceText
   })
 
   useEffect(() => {
@@ -265,10 +267,16 @@ export function useComposerVoice({
   /** Turn the conversation on with the engine `voice.voice_chat_mode` selects,
    *  decided in the same state batch so the other engine never sees a frame of
    *  `enabled`. gpt-live selected but not startable (no OpenAI key on the
-   *  gateway) falls back to chained with a notice rather than a dead button. */
+   *  gateway) fails visibly; the selected live engine never falls back to chained. */
   const activateConversation = useCallback(() => {
     const status = voiceLiveStatus === undefined ? $voiceLiveStatus.get() : voiceLiveStatus
     let live = false
+
+    if (embedded && status === null) {
+      notify({ id: 'voice-live-unavailable', kind: 'warning', message: 'Не удалось проверить голосовой режим. Откройте разговор снова.' })
+
+      return
+    }
 
     if (selectedVoiceChatMode(status) === 'gpt-live') {
       if (status?.available) {
@@ -279,13 +287,15 @@ export function useComposerVoice({
           kind: 'warning',
           message: t.notifications.voice.liveUnavailable(status?.reason ?? 'not configured')
         })
+
+        return
       }
     }
 
     setLiveEngineActive(live)
     setVoiceConversationActive(true)
     recordFeatureUse('voice_conversation')
-  }, [t, voiceLiveStatus])
+  }, [embedded, t, voiceLiveStatus])
 
   useEmbeddedVoiceStart({
     active: voiceConversationActive,
@@ -475,6 +485,19 @@ export function useComposerVoice({
 
   return {
     conversation,
+    conversationControls: {
+      active: voiceConversationActive,
+      live: liveEngineActive,
+      connecting: liveEngineActive && liveConversation.connecting,
+      transcript: liveEngineActive ? liveConversation.transcript : [],
+      level: conversation.level,
+      muted: conversation.muted,
+      status: conversation.status,
+      onEnd: endConversation,
+      onStart: startConversation,
+      onStopTurn: conversation.stopTurn,
+      onToggleMute: conversation.toggleMute
+    },
     dictate,
     endConversation,
     handleToggleAutoSpeak,

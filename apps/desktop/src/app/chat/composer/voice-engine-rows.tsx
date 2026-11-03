@@ -52,7 +52,10 @@ export function VoiceEngineRows({ disabled }: { disabled: boolean }) {
         </DropdownMenuRadioItem>
         <DropdownMenuRadioItem className={dropdownMenuRow} disabled={disabled || !liveAvailable} value="gpt-live">
           <span className="flex min-w-0 flex-col">
-            <span>{c.voiceEngineLive}</span>
+            <span>{status.auth === 'codex-subscription' ? 'Голос через Codex' : c.voiceEngineLive}</span>
+            {status.auth === 'codex-subscription' && (
+              <span className="text-muted-foreground text-xs">Вход через ChatGPT / Codex</span>
+            )}
             {liveAvailable ? null : (
               <span className="text-muted-foreground truncate text-xs">
                 {status.reason ?? c.voiceEngineLiveNeedsKey}

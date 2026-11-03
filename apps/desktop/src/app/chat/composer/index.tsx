@@ -1098,6 +1098,7 @@ export function ChatBar({
     endConversation,
     handleToggleAutoSpeak,
     startConversation,
+    conversationControls,
     voiceActivityState,
     voiceConversationActive,
     voiceStatus
@@ -1141,16 +1142,7 @@ export function ChatBar({
       canSubmit={canSubmit}
       cardWaiting={cardWaiting}
       compactModelPill={poppedOut || compactPill}
-      conversation={{
-        active: voiceConversationActive,
-        level: conversation.level,
-        muted: conversation.muted,
-        onEnd: endConversation,
-        onStart: startConversation,
-        onStopTurn: conversation.stopTurn,
-        onToggleMute: conversation.toggleMute,
-        status: conversation.status
-      }}
+      conversation={conversationControls}
       disabled={disabled}
       foldVoice={foldVoice}
       hasComposerPayload={hasComposerPayload}

@@ -1226,13 +1226,13 @@ DEFAULT_CONFIG = {
     },
 
     "voice": {
-        # How the Desktop voice conversation is wired:
-        #   chained  — STT → Hermes turn → TTS (the stt.* / tts.* providers below)
-        #   gpt-live — one full-duplex voice model (OpenAI GPT-Live) owns the mic and speaker and
-        #              DELEGATES every real request to Hermes (any model / provider you have
-        #              selected); needs an OpenAI API key. $0.05/min voice layer billing.
+        # Desktop: chained uses STT → Hermes → TTS; GPT-Live owns duplex audio and
+        # delegates work to Hermes. Its Codex subscription / API-key auth lane is explicit.
         "voice_chat_mode": "chained",
         "gpt_live": {
+            "auth": "api-key",  # api-key | codex-subscription; never falls back between lanes
+            "codex_binary": "",  # optional native Codex CLI executable for the subscription lane
+            "codex_agent_model": "",  # optional model for the inert backing relay, not the voice model
             "model": "gpt-live-1",
             "voice": "marin",  # marin | quartz | ripple | vesper | willow | stone | gleam | meridian | ...
             # Extra sentences appended to the live model's conversation persona (tone, pacing, language).
