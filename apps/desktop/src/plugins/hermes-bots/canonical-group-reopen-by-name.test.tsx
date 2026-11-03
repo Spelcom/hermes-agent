@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { WritableAtom } from 'nanostores'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { $canonicalGroupBindings } from './canonical-group-registry'
+import { $canonicalGroupBindings, CanonicalGroupList } from './canonical-group-registry'
 import { $botMeta } from './data'
 import { $groupChats, $groupChatWorkspace } from './group-chat'
 import type * as GroupChatParts from './group-chat-parts'
@@ -17,6 +17,7 @@ import { translateBots } from './i18n-test-helper'
 const { request, notify, openWorkspace, catalog } = vi.hoisted(() => ({
   request: vi.fn(), notify: vi.fn(), openWorkspace: vi.fn(), catalog: { patch: null as null | ((t: Record<string, unknown>) => unknown) }
 }))
+
 vi.mock('@hermes/plugin-sdk', async importOriginal => {
   const sdk = await importOriginal<typeof HermesSdk>()
   const { en } = await import('@/i18n/en')
@@ -225,4 +226,40 @@ it('renders the lookup states and Retry from the active catalog, not hardcoded E
 
   await act(async () => { releaseList({ rooms: [], next_offset: null }) })
   expect(screen.getByText('T:missing')).toBeTruthy()
+})
+
+
+it('canonical group list waits for startup connection and clears a failed read after reconnect', async () => {
+  state.gateway.set('connecting')
+  let fail = true
+  gateway(() => {
+    if (fail) {throw new Error('Hermes gateway is not connected')}
+
+    return { rooms: [original], next_offset: null }
+  })
+  await act(async () => { render(<CanonicalGroupList onOpen={vi.fn()} />) })
+  expect(request).not.toHaveBeenCalled()
+  await act(async () => { state.gateway.set('open') })
+  expect(screen.getByRole('alert').textContent).toContain('Hermes gateway is not connected')
+  await act(async () => { state.gateway.set('closed') })
+  fail = false
+  await act(async () => { state.gateway.set('open') })
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Team' })).toBeTruthy()
+})
+
+it('canonical group list ignores a late disconnected read failure after reconnect succeeds', async () => {
+  let rejectOld: (error: Error) => void = () => { throw new Error('old request did not start') }
+  let reads = 0
+  gateway(() => ++reads === 1
+    ? new Promise((_resolve, reject) => { rejectOld = reject })
+    : { rooms: [original], next_offset: null })
+  await act(async () => { render(<CanonicalGroupList onOpen={vi.fn()} />) })
+  expect(reads).toBe(1)
+  await act(async () => { state.gateway.set('closed') })
+  await act(async () => { state.gateway.set('open') })
+  expect(screen.getByRole('button', { name: 'Team' })).toBeTruthy()
+  await act(async () => { rejectOld(new Error('Hermes gateway is not connected')) })
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Team' })).toBeTruthy()
 })
