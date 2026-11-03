@@ -28,6 +28,8 @@ export const arChat = {
     endShort: 'إنهاء',
     stopDictation: 'إيقاف الإملاء',
     transcribingDictation: 'جار تفريغ الإملاء',
+    voicePreview: 'معاينة الصوت',
+    voicePreviewReady: 'الصوت يعمل: تم استلام الصوت والنص',
     voiceControls: 'صوت',
     voiceDictation: 'إملاء صوتي',
     lookupLoading: 'جار البحث...',

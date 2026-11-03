@@ -19,7 +19,11 @@ export function captureAgentConversationRoute(route: PluginProfileRoute): Readon
 }
 
 /** Bind the native cache while leaving route, workspace and foreground profile alone. */
-export async function openAgentConversationSession(input: PluginProfileRoute, signal: AbortSignal) {
+export async function openAgentConversationSession(
+  input: PluginProfileRoute,
+  signal: AbortSignal,
+  presentation: 'chat' | 'voice-only' = 'chat'
+) {
   const route = captureAgentConversationRoute(input)
   const releaseGateway = await retainGatewayForAgent(route.connectionId, route.profile, { spawnPriority: 'foreground' })
   let releaseRuntime: (() => void) | undefined
@@ -60,7 +64,13 @@ export async function openAgentConversationSession(input: PluginProfileRoute, si
       throw new Error('Native session surface is not ready')
     }
 
-    const runtimeId = await delegate.resumeTile(storedSessionId, { authoritativeSnapshot: true, ownerRoute: route })
+    const runtimeId = await delegate.resumeTile(
+      storedSessionId,
+      presentation === 'voice-only'
+        ? { deferTranscript: true, ownerRoute: route }
+        : { authoritativeSnapshot: true, ownerRoute: route }
+    )
+
     signal.throwIfAborted()
     releaseRuntime = retainSessionView(storedSessionId, runtimeId)
     setSessionOwnerHint(runtimeId, route)

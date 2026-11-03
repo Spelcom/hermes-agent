@@ -2247,6 +2247,8 @@ export const jaOverrides = {
   },
 
   composer: {
+    voicePreview: '声を試聴',
+    voicePreviewReady: '音声は正常です：音声とテキストを受信しました',
     message: 'メッセージ',
     wakingProfile: profile => `${profile} を起動中…`,
     placeholderStarting: 'Hermes を起動中...',

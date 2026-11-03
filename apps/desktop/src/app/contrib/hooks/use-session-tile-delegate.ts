@@ -78,9 +78,10 @@ function tileRestScope(owner: SessionOwnerScope) {
 /** A cached binding still carrying this session's transcript (or mid-turn). */
 function isWarmTileState(
   cached: ClientSessionState | undefined,
-  storedSessionId: string
+  storedSessionId: string,
+  deferTranscript = false
 ): cached is ClientSessionState {
-  return cached?.storedSessionId === storedSessionId && (cached.busy || cached.messages.length > 0)
+  return !deferTranscript && cached?.storedSessionId === storedSessionId && (cached.busy || cached.messages.length > 0)
 }
 
 function mergeTileTranscript(
@@ -403,7 +404,7 @@ export function useSessionTileDelegate({
         // warm snapshot is whatever the tile last painted, and cron bot-chat
         // deliveries that landed while the panel's WS was down never arrive
         // as realtime events (#96183).
-        if (existing && isWarmTileState(cached, storedSessionId) && !refreshTranscript && !authoritativeSnapshot) {
+        if (existing && isWarmTileState(cached, storedSessionId, options?.deferTranscript) && !refreshTranscript && !authoritativeSnapshot) {
           publishSessionState(existing, cached)
 
           return existing
@@ -418,11 +419,11 @@ export function useSessionTileDelegate({
 
         const restScope = tileRestScope(owner)
 
-        const prefetchPromise = authoritativeSnapshot
+        const prefetchPromise = authoritativeSnapshot || options?.deferTranscript
           ? Promise.resolve(null)
           : getLatestSessionMessages(storedSessionId, restScope).catch(() => null)
 
-        if (!authoritativeSnapshot && existing && isWarmTileState(cached, storedSessionId)) {
+        if (!authoritativeSnapshot && existing && isWarmTileState(cached, storedSessionId, options?.deferTranscript)) {
           const prefetch = await prefetchPromise
 
           // A long turn can push every rendered row off the newest page; read
@@ -475,6 +476,10 @@ export function useSessionTileDelegate({
             )
           },
           async () => {
+            if (options?.deferTranscript) {
+              throw new Error('A live session is required for voice')
+            }
+
             const stored =
               (await prefetchPromise) ??
               (await getLatestSessionMessages(storedSessionId, restScope).catch(() => null)) ??

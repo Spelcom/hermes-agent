@@ -122,6 +122,25 @@ describe('useSessionTileDelegate resumeTile', () => {
     expect(requestGateway).not.toHaveBeenCalled()
   })
 
+  it('attaches a voice-only owner without any REST history hydration', async () => {
+    const ownerRoute = { connectionId: 'office', mode: 'remote' as const, profile: 'alias', targetProfile: 'worker' }
+    const requestGateway = vi.fn(async () => ({}) as never)
+    vi.mocked(requestGatewayForAgent).mockResolvedValueOnce({ session_id: 'voice-runtime', messages: [] } as never)
+    const cached = createClientSessionState('canonical-voice')
+    cached.messages = [{ id: 'cached-message', role: 'user', parts: [textPart('Earlier text')] }] as never
+    renderTile(requestGateway, {
+      runtimeIdByStoredSessionIdRef: { current: new Map([['canonical-voice', 'old-runtime']]) },
+      sessionStateByRuntimeIdRef: { current: new Map([['old-runtime', cached]]) }
+    })
+
+    expect(await sessionTileDelegate()!.resumeTile('canonical-voice', { deferTranscript: true, ownerRoute }))
+      .toBe('voice-runtime')
+    expect(getLatestSessionMessages).not.toHaveBeenCalled()
+    expect(requestGatewayForAgent).toHaveBeenCalledWith('office', 'alias', 'session.resume', expect.objectContaining({
+      session_id: 'canonical-voice', profile: 'worker', omit_messages: true
+    }))
+  })
+
   it('resolves and carries a default-profile session explicitly', async () => {
     setSessions([row({ id: 'stored-y', profile: 'default' })])
 

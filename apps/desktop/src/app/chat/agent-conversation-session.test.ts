@@ -91,3 +91,10 @@ it('holds before resume can publish and releases both leases when close races hy
   expect(isSessionViewRetained('runtime', 'canonical-tip')).toBe(false)
   expect(mocks.release).toHaveBeenCalledOnce()
 })
+
+it('attaches voice to the canonical owner without fetching a full transcript', async () => {
+  const session = await openAgentConversationSession(route, new AbortController().signal, 'voice-only')
+  expect(mocks.resume).toHaveBeenCalledWith('canonical-tip', { deferTranscript: true, ownerRoute: route })
+  expect(session.storedSessionId).toBe('canonical-tip')
+  session.release()
+})

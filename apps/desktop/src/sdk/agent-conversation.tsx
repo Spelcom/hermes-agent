@@ -2,8 +2,18 @@ import { lazy, Suspense } from 'react'
 
 import type { PluginProfileRoute } from './profile-request'
 
+export interface AgentVoiceState {
+  active: boolean
+  connecting: boolean
+  muted: boolean
+  status: 'idle' | 'listening' | 'transcribing' | 'thinking' | 'speaking'
+}
+
 export interface AgentConversationProps {
   route: PluginProfileRoute
+  /** Voice controls without mounting a transcript, editor, or full chat surface. */
+  presentation?: 'chat' | 'voice-only'
+  onVoiceStateChange?: (state: AgentVoiceState) => void
   /** New token only on an explicit microphone click; omission mounts text chat. */
   voiceStartToken?: string | number
   /** A name-wake suffix delivered once to the connected voice session. */

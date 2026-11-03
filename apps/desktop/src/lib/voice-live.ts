@@ -32,6 +32,8 @@ export interface VoiceLiveStatus {
   reason: null | string
   model: string
   voice: string
+  /** Native Codex choices, separate from the direct API voice catalog. */
+  voices?: string[]
   auth?: 'codex-subscription' | 'api-key'
   wire_protocol?: 'codex-v3' | 'live-api'
 }
@@ -96,6 +98,7 @@ export async function fetchVoiceLiveStatus(owner?: ResolvedOwner): Promise<null 
       model: response.model,
       reason: response.reason ?? null,
       voice: response.voice,
+      voices: response.voices,
       auth: response.auth,
       wire_protocol: response.wire_protocol
     }

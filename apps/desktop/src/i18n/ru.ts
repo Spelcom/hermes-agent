@@ -2568,6 +2568,8 @@ export const ruOverrides = {
     endShort: 'Завершить',
     stopDictation: 'Остановить диктовку',
     transcribingDictation: 'Расшифровка диктовки',
+    voicePreview: 'Послушать голос',
+    voicePreviewReady: 'Голос работает: получены звук и текст',
     voiceControls: 'Голос',
     voiceDictation: 'Голосовая диктовка',
     speakReplies: 'Зачитывать ответы вслух',

@@ -27,6 +27,10 @@ GPT_LIVE_MODE = "gpt-live"
 CHAINED_MODE = "chained"
 DEFAULT_LIVE_MODEL = "gpt-live-1"
 DEFAULT_LIVE_VOICE = "marin"
+# Native Codex v3 choices confirmed in the installed official CLI RealtimeVoice
+# schema (codex app-server generate-ts --experimental); these are NOT the API list.
+CODEX_LIVE_VOICES = ("cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "arbor", "sol")
+DEFAULT_CODEX_VOICE = "cove"
 DEFAULT_LIVE_BASE_URL = "https://api.openai.com/v1"
 # Voices the vendor lists for gpt-live-1 (live-conversations guide) plus the realtime defaults it
 # accepts; free text stays allowed for custom voices.
@@ -142,7 +146,8 @@ def resolve_gpt_live_status() -> dict[str, Any]:
         return {
             "mode": voice_chat_mode(voice), "auth": auth, "wire_protocol": "codex-v3",
             "available": bool(binary), "reason": None if binary else INSTALL_HINT,
-            "model": DEFAULT_MODEL, "voice": str(live.get("voice") or DEFAULT_LIVE_VOICE),
+            "model": DEFAULT_MODEL, "voice": str(live.get("voice") or DEFAULT_CODEX_VOICE),
+            "voices": list(CODEX_LIVE_VOICES),
             "account_status": "checked-on-start",
         }
     api_key, _base = _resolve_credentials(live)
@@ -170,7 +175,7 @@ async def create_webrtc_session_async(sdp_offer: str, history: Optional[list] = 
         raise ValueError(INSTALL_HINT)
     return await create_managed_call(
         sdp_offer, profile=str(get_hermes_home().resolve()), session_id=session_id,
-        instructions=live_instructions(live), voice=str(live.get("voice") or DEFAULT_LIVE_VOICE),
+        instructions=live_instructions(live), voice=str(live.get("voice") or DEFAULT_CODEX_VOICE),
         binary=binary, history=history, agent_model=str(live.get("codex_agent_model") or "").strip(),
     )
 

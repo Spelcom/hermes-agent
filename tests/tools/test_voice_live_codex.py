@@ -122,6 +122,8 @@ def test_codex_capability_probe_does_not_resolve_api_keys_or_spawn(monkeypatch):
     status = voice_live.resolve_gpt_live_status()
     assert status["available"] and status["wire_protocol"] == "codex-v3"
     assert status["account_status"] == "checked-on-start"
+    assert status["voice"] == "cove"
+    assert "sol" in status["voices"] and "marin" not in status["voices"]
     with pytest.raises(ValueError, match="asynchronous"):
         voice_live.create_webrtc_session("offer")
 

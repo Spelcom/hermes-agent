@@ -9,6 +9,7 @@ import type { AgentConversationProps } from '@/sdk/agent-conversation'
 
 import { captureAgentConversationRoute, openAgentConversationSession } from './agent-conversation-session'
 import { AgentVoiceCheck } from './agent-voice-check'
+import { AgentVoiceContent } from './agent-voice-content'
 import { buildTileView, TileChat } from './session-tile'
 
 type OpenedConversation = Awaited<ReturnType<typeof openAgentConversationSession>>
@@ -17,15 +18,33 @@ function ConversationContent({
   session,
   voiceStartToken,
   initialVoiceText,
-  initialCommand
+  initialCommand,
+  presentation,
+  onVoiceStateChange
 }: {
   session: OpenedConversation
   voiceStartToken?: string | number
   initialVoiceText?: AgentConversationProps['initialVoiceText']
   initialCommand?: AgentConversationProps['initialCommand']
+  presentation?: AgentConversationProps['presentation']
+  onVoiceStateChange?: AgentConversationProps['onVoiceStateChange']
 }) {
   const id = useId()
   const view = useMemo(() => buildTileView(session.storedSessionId, atom<string | null>(session.runtimeId)), [session])
+
+  if (presentation === 'voice-only') {
+    return (
+      <AgentVoiceContent
+        initialCommand={initialCommand}
+        initialVoiceText={initialVoiceText}
+        onVoiceStateChange={onVoiceStateChange}
+        session={session}
+        target={`agent-conversation:${id}`}
+        view={view}
+        voiceStartToken={voiceStartToken}
+      />
+    )
+  }
 
   return (
     <TileChat
@@ -49,6 +68,8 @@ function OwnedConversation({
   initialVoiceText,
   initialCommand,
   onClose,
+  presentation = 'chat',
+  onVoiceStateChange,
   title,
   className
 }: AgentConversationProps) {
@@ -60,7 +81,7 @@ function OwnedConversation({
     const controller = new AbortController()
     let release: (() => void) | undefined
     setError('')
-    void openAgentConversationSession(route, controller.signal)
+    void openAgentConversationSession(route, controller.signal, presentation)
       .then(opened => {
         if (controller.signal.aborted) {
           opened.release()
@@ -81,10 +102,12 @@ function OwnedConversation({
       controller.abort()
       release?.()
     }
-  }, [route, retry])
+  }, [route, retry, presentation])
 
   return (
-    <div className={cn('flex h-full min-h-0 min-w-0 flex-col overflow-hidden', className)}>
+    <div
+      className={cn('flex min-h-0 min-w-0 flex-col overflow-hidden', presentation === 'chat' && 'h-full', className)}
+    >
       {title && (
         <div className="flex items-center gap-2 border-b px-3 py-2 text-sm">
           <span className="min-w-0 flex-1 truncate">{title}</span>
@@ -95,9 +118,9 @@ function OwnedConversation({
           )}
         </div>
       )}
-      {session?.voiceLiveStatus?.auth === 'codex-subscription' && session.voiceLiveStatus.available && (
-        <AgentVoiceCheck route={session.route} sessionId={session.runtimeId} />
-      )}
+      {presentation === 'chat' &&
+        session?.voiceLiveStatus?.auth === 'codex-subscription' &&
+        session.voiceLiveStatus.available && <AgentVoiceCheck route={session.route} sessionId={session.runtimeId} />}
       {error ? (
         <div className="p-4 text-sm" role="alert">
           <p>{error}</p>
@@ -107,6 +130,8 @@ function OwnedConversation({
         <ConversationContent
           initialCommand={initialCommand}
           initialVoiceText={initialVoiceText}
+          onVoiceStateChange={onVoiceStateChange}
+          presentation={presentation}
           session={session}
           voiceStartToken={voiceStartToken}
         />
@@ -127,7 +152,7 @@ export default function AgentConversation(props: AgentConversationProps) {
     [connectionId, mode, primary, profile, targetProfile]
   )
 
-  const key = JSON.stringify([connectionId, mode, profile, targetProfile])
+  const key = JSON.stringify([connectionId, mode, profile, targetProfile, props.presentation ?? 'chat'])
 
   return <OwnedConversation key={key} {...props} route={route} />
 }

@@ -14,6 +14,7 @@
 
 import type { ReadableAtom } from 'nanostores'
 
+import { pluginRestProfile } from '@/api/plugins'
 import { pluginRest, type PluginRestOptions, pluginSocket } from '@/hermes'
 import { createPluginI18n, type PluginI18n } from '@/i18n'
 import {
@@ -24,6 +25,7 @@ import {
   runPluginAppAction
 } from '@/lib/keybinds/plugin-actions'
 import { readKey, writeKey } from '@/lib/storage'
+import type { PluginProfileRoute } from '@/sdk/profile-request'
 import { dispatchPluginNativeNotification, type PluginNativeNotificationInput } from '@/store/native-notifications'
 import { $petActive } from '@/store/pet'
 import { clearPetMessages, type PetSayOptions, sayPetMessage } from '@/store/pet-plugin-messages'
@@ -148,6 +150,8 @@ export interface PluginContext {
    *  `plugin_api.py` — profile-aware, namespace-scoped by construction. Use
    *  `host.request` for gateway JSON-RPC. */
   rest: <T>(path: string, opts?: PluginRestOptions) => Promise<T>
+  /** Same namespace and auth, pinned to a captured connection/profile owner. */
+  restProfile: <T>(route: PluginProfileRoute, path: string, opts?: PluginRestOptions) => Promise<T>
   /** Live twin of `rest`: a WebSocket to this plugin's own namespace
    *  ('/events'), JSON frames to `onMessage`, auto-reconnect, disposer
    *  returned. Resolves to a no-op on OAuth remotes — treat it as an
@@ -364,6 +368,8 @@ export function createPluginContext(pluginId: string, onDispose?: (dispose: () =
     onEvent: (type, listener) => track(onGatewayEvent(type, listener)),
     ...createPluginLifetime(track),
     rest: <T>(path: string, opts?: PluginRestOptions) => pluginRest<T>(pluginId, path, opts),
+    restProfile: <T>(route: PluginProfileRoute, path: string, opts?: PluginRestOptions) =>
+      pluginRestProfile<T>(pluginId, route, path, opts),
     socket: (path, onMessage) => track(pluginSocket(pluginId, path, onMessage)),
     os: createPluginOs(pluginId),
     pet: createPluginPet(pluginId, track),

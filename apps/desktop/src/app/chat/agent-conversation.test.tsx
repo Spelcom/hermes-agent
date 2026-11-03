@@ -8,15 +8,28 @@ const mocks = vi.hoisted(() => ({
   release: vi.fn(),
   activate: vi.fn(),
   end: vi.fn(async () => undefined),
-  tile: vi.fn()
+  tile: vi.fn(),
+  voice: vi.fn()
 }))
 
 vi.mock('@/i18n', () => ({
-  useI18n: () => ({ t: { common: { loading: 'Loading', retry: 'Retry', close: 'Close' } } })
+  useI18n: () => ({
+    t: {
+      common: { loading: 'Loading', retry: 'Retry', close: 'Close' },
+      composer: { voicePreview: 'Preview voice', voicePreviewReady: 'Voice works' }
+    }
+  })
 }))
 vi.mock('./agent-conversation-session', () => ({
   captureAgentConversationRoute: (route: object) => Object.freeze({ ...route }),
   openAgentConversationSession: mocks.open
+}))
+vi.mock('./agent-voice-content', () => ({
+  AgentVoiceContent: (props: object) => {
+    mocks.voice(props)
+
+    return <div>Compact voice controls</div>
+  }
 }))
 vi.mock('./session-tile', () => ({
   buildTileView: () => ({}),
@@ -88,10 +101,39 @@ it('a panel closed before hydration never mounts a composer or starts its microp
   expect(mocks.release).toHaveBeenCalledOnce()
 })
 
-
 it('offers the microphone-free voice check for the backend canonical Codex subscription lane', async () => {
-  mocks.open.mockResolvedValue({ route, storedSessionId: 'stored', runtimeId: 'runtime', voiceLiveStatus: { mode: 'gpt-live', available: true, auth: 'codex-subscription', wire_protocol: 'codex-v3' }, release: mocks.release })
+  mocks.open.mockResolvedValue({
+    route,
+    storedSessionId: 'stored',
+    runtimeId: 'runtime',
+    voiceLiveStatus: { mode: 'gpt-live', available: true, auth: 'codex-subscription', wire_protocol: 'codex-v3' },
+    release: mocks.release
+  })
   const panel = render(<AgentConversation route={route} />)
-  expect(await panel.findByRole('button', { name: 'Проверить голос' })).toBeTruthy()
+  expect(await panel.findByRole('button', { name: 'Preview voice' })).toBeTruthy()
   expect(mocks.activate).not.toHaveBeenCalled()
+})
+
+it('voice-only never mounts a chat transcript or composer and preserves focus', async () => {
+  mocks.open.mockResolvedValue({
+    route,
+    storedSessionId: 'stored',
+    runtimeId: 'runtime',
+    voiceLiveStatus: { mode: 'gpt-live', available: true, auth: 'codex-subscription' },
+    release: mocks.release
+  })
+
+  const panel = render(
+    <>
+      <button>Keep focus</button>
+      <AgentConversation presentation="voice-only" route={route} voiceStartToken="mic" />
+    </>
+  )
+
+  panel.getByRole('button', { name: 'Keep focus' }).focus()
+  await waitFor(() => expect(mocks.voice).toHaveBeenCalled())
+  expect(mocks.open).toHaveBeenCalledWith(route, expect.any(AbortSignal), 'voice-only')
+  expect(mocks.tile).not.toHaveBeenCalled()
+  expect(panel.queryByText('Native thread and composer')).toBeNull()
+  expect(window.document.activeElement).toBe(panel.getByRole('button', { name: 'Keep focus' }))
 })

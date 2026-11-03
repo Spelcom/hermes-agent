@@ -2,8 +2,16 @@ import { isStableOpen, reconnectBackoffDelayMs } from '@hermes/shared'
 
 import type { HermesConnection } from '@/global'
 import { RECONNECT_ATTEMPT_TIMEOUT_MS, withTimeout } from '@/lib/with-timeout'
+import type { PluginProfileRoute } from '@/sdk/profile-request'
 
-import { $apiRequestScope, getApiRequestConnection, getApiRequestProfile, hermesApi, profileScoped } from './client'
+import {
+  $apiRequestScope,
+  getApiRequestConnection,
+  getApiRequestProfile,
+  hermesApi,
+  hermesApiAs,
+  profileScoped
+} from './client'
 
 /** Resolve the ACTIVE backend's connection descriptor, (connectionId,
  *  profile)-scoped — mirroring how store/profile resolves $connection: a
@@ -56,7 +64,7 @@ export interface PluginRestOptions {
 function pluginPathSuffix(caller: string, path: string): string {
   const suffix = path.startsWith('/') ? path : `/${path}`
 
-  if (suffix.split(/[?#]/, 1)[0].split('/').includes('..')) {
+  if (decodeURIComponent(suffix.split(/[?#]/, 1)[0]).split(/[\\/]/).includes('..')) {
     throw new Error(`${caller}: illegal path traversal in "${path}"`)
   }
 
@@ -84,6 +92,36 @@ export async function pluginRest<T>(pluginId: string, path: string, opts: Plugin
     timeoutMs: opts.timeoutMs,
     ...profileScoped()
   })
+}
+
+/** Exact-owner twin of pluginRest; the caller keeps its own namespace. */
+export async function pluginRestProfile<T>(
+  pluginId: string,
+  route: PluginProfileRoute,
+  path: string,
+  opts: PluginRestOptions = {}
+): Promise<T> {
+  if (
+    !route?.connectionId?.trim() ||
+    !route.profile?.trim() ||
+    !route.targetProfile?.trim() ||
+    !['local', 'remote'].includes(route.mode)
+  ) {
+    throw new Error('Plugin REST requires an exact connection and profile route')
+  }
+
+  const suffix = pluginPathSuffix('pluginRestProfile', path)
+
+  return hermesApiAs<T>(
+    { connectionId: route.connectionId, profile: route.targetProfile },
+    {
+      path: `/api/plugins/${pluginId}${suffix}`,
+      method: opts.method,
+      body: opts.body,
+      upload: opts.upload,
+      timeoutMs: opts.timeoutMs
+    }
+  )
 }
 
 /** Refusals in a row that do not clear by themselves before the socket stops for its current

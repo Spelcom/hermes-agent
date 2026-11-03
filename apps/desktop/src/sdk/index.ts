@@ -122,11 +122,12 @@ import {
 import { $busyBySession, sessionsHost } from './sessions'
 import { desktopSettings } from './settings'
 
-export { AgentConversation, type AgentConversationProps } from './agent-conversation'
+export { AgentConversation, type AgentConversationProps, type AgentVoiceState } from './agent-conversation'
 /** Pane, status bar and titlebar slots; see `./areas` for the mount rules. */
 export { PANES_AREA, STATUSBAR_AREAS, TITLEBAR_AREAS } from './areas'
 /** The plugin authoring contract (`HermesPlugin`, `PluginContext`, `ctx.*` door types). */
 export type * from './plugin-contract'
+export type { PluginProfileRequestOptions, PluginProfileRoute } from './profile-request'
 
 // -- state: readonly views over the app's live atoms -------------------------
 
@@ -1565,13 +1566,10 @@ export const host = {
   i18n: i18nHost
 }
 
-// -- react bridge -------------------------------------------------------------
-
-export type { PluginProfileRequestOptions, PluginProfileRoute } from './profile-request'
+export type { DesktopSettingKey, DesktopSettingValues } from './settings'
 
 // -- ui: the design language --------------------------------------------------
 
-export type { DesktopSettingKey, DesktopSettingValues } from './settings'
 /** THE whole Capabilities surface (Skills / Tools / MCP tabs, installed
  *  lists, full-skill detail pane, embedded hub picker with one-click
  *  installs). For plugin dialogs pass `embedded` (tab state stays local —
@@ -1588,6 +1586,7 @@ export { CapabilitiesView } from '@/app/capabilities'
  *  dialog); pass a live `gateway` (see `host.getGateway()`) and the `profile`
  *  to scope it to one bot. */
 export { ConnectorsTab } from '@/app/capabilities/connectors/connectors-tab'
+export { AgentVoicePicker, type AgentVoicePickerProps } from '@/app/chat/agent-voice-picker'
 // Every contribution surface, plugin-reachable: register keybinds, palette
 // commands, routes, themes, panes, composer extensions, and bar items with
 // the same area ids + payload types core uses.

@@ -165,6 +165,8 @@ export const zhHantOverrides = {
   artifactPreview: zhHantArtifacts.artifactPreview,
   sidebar: zhHantChrome.sidebar,
   composer: {
+    voicePreview: '試聽聲音',
+    voicePreviewReady: '語音正常：已收到音訊和文字',
     ...zhHantChat.composer,
     redirect: '重新導向目前的執行',
     queueLostNote: '重新啟動期間該回合已遺失',
