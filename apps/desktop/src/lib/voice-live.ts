@@ -228,6 +228,7 @@ export class VoiceLiveSession {
   private peer: null | RTCPeerConnection = null
   private events: null | RTCDataChannel = null
   private microphone: null | MediaStream = null
+  private muted = false
   private silentInputContext: null | AudioContext = null
   private silentInputSource: null | ConstantSourceNode = null
   private silentInputStream: null | MediaStream = null
@@ -430,6 +431,7 @@ export class VoiceLiveSession {
     this.microphone = microphone
 
     for (const track of microphone.getAudioTracks()) {
+      track.enabled = !this.muted
       connection.addTrack(track, microphone)
     }
   }
@@ -752,6 +754,8 @@ export class VoiceLiveSession {
   }
 
   setMuted(muted: boolean): void {
+    this.muted = muted
+
     for (const track of this.microphone?.getAudioTracks() ?? []) {
       track.enabled = !muted
     }

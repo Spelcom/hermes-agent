@@ -152,6 +152,38 @@ describe('native Codex live conversation', () => {
     channel.receive({ type: 'delegation.created', item: { id: 'late' } })
     expect(onDelegation).toHaveBeenCalledTimes(1)
   })
+  it('honors mute selected while capture is pending before attaching any microphone track', async () => {
+    const { getUserMedia, track, addTrack } = setup()
+    const stream = { getAudioTracks: () => [track], getTracks: () => [track] }
+    let resolveCapture: (value: typeof stream) => void = () => undefined
+    getUserMedia.mockImplementationOnce(() => new Promise(resolve => { resolveCapture = resolve }))
+
+    const attachedEnabled: boolean[] = []
+    addTrack.mockImplementation((attached: typeof track) => { attachedEnabled.push(attached.enabled) })
+
+    const session = new VoiceLiveSession(
+      { onDelegation: vi.fn(), onClosed: vi.fn(), onError: vi.fn() },
+      { connectionId: 'office', profile: 'worker' }
+    )
+
+    try {
+      const pending = session.start([], 'runtime-owner')
+      await vi.waitFor(() => expect(getUserMedia).toHaveBeenCalledOnce())
+      session.setMuted(true)
+      resolveCapture(stream)
+      await pending
+      expect(addTrack).toHaveBeenCalledWith(track, stream)
+      expect(attachedEnabled).toEqual([false])
+      expect(track.enabled).toBe(false)
+      session.setMuted(false)
+      expect(track.enabled).toBe(true)
+      session.setMuted(true)
+      expect(track.enabled).toBe(false)
+    } finally {
+      session.close()
+    }
+  })
+
   it('reports only the numeric close code when the native lease is refused', async () => {
     setup()
     vi.spyOn(Lease.prototype, 'send').mockImplementation(function (this: Lease) {
