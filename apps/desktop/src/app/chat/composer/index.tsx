@@ -119,6 +119,23 @@ import {
 } from './url-refs'
 import { VoiceActivity, VoicePlaybackActivity } from './voice-activity'
 
+function composerBusyRequest(
+  request: GatewayRequester | undefined,
+  gateway: ChatBarProps['gateway']
+): GatewayRequester {
+  return (method, params) => {
+    if (request) {
+      return request(method, params)
+    }
+
+    if (gateway) {
+      return gateway.request(method, params)
+    }
+
+    return Promise.reject(new Error('Gateway unavailable'))
+  }
+}
+
 export function ChatBar({
   busy,
   cwd,
@@ -183,10 +200,7 @@ export function ChatBar({
   const statusDrawerId = useId()
   const codingDrawerId = useId()
 
-  const requestBusyConfig = useCallback<GatewayRequester>(
-    (method, params) => (gateway ? gateway.request(method, params) : Promise.reject(new Error('Gateway unavailable'))),
-    [gateway]
-  )
+  const requestBusyConfig = useMemo(() => composerBusyRequest(scope.requestGateway, gateway), [gateway, scope])
 
   const busyInputMode = useBusyInputMode({
     sessionId: sessionId ?? null,

@@ -122,6 +122,7 @@ import {
 import { $busyBySession, sessionsHost } from './sessions'
 import { desktopSettings } from './settings'
 
+export { AgentConversation, type AgentConversationProps } from './agent-conversation'
 /** Pane, status bar and titlebar slots; see `./areas` for the mount rules. */
 export { PANES_AREA, STATUSBAR_AREAS, TITLEBAR_AREAS } from './areas'
 /** The plugin authoring contract (`HermesPlugin`, `PluginContext`, `ctx.*` door types). */

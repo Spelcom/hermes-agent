@@ -414,7 +414,7 @@ export function useSessionTileDelegate({
         // reading messages) without a profile lets the gateway fall back to the
         // launch-profile DB and fork the conversation into the wrong profile —
         // the same cross-profile bleed the recovery resumes had (#67603).
-        const owner = await ownerForStoredSession(storedSessionId)
+        const owner = options?.ownerRoute ?? (await ownerForStoredSession(storedSessionId))
 
         const restScope = tileRestScope(owner)
 

@@ -2,6 +2,8 @@ import { act, cleanup, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { $voiceLiveStatus } from '@/store/voice-live'
+
 import { markActiveComposer, requestComposerDictation, requestVoiceToggle } from '../focus'
 import { ComposerScopeProvider, ComposerSurfaceProvider, MAIN_COMPOSER_SCOPE } from '../scope'
 
@@ -9,6 +11,7 @@ import { useComposerVoice } from './use-composer-voice'
 
 const mocks = vi.hoisted(() => ({
   conversationEnabled: [] as boolean[],
+  liveEnabled: [] as boolean[],
   dictate: vi.fn(),
   endConversation: vi.fn(async () => undefined)
 }))
@@ -30,7 +33,11 @@ vi.mock('./use-voice-conversation', () => ({
 }))
 
 vi.mock('./use-voice-live-conversation', () => ({
-  useVoiceLiveConversation: () => ({ end: mocks.endConversation, start: vi.fn(), status: 'idle' })
+  useVoiceLiveConversation: ({ enabled }: { enabled: boolean }) => {
+    mocks.liveEnabled.push(enabled)
+
+    return { end: mocks.endConversation, start: vi.fn(), status: 'idle' }
+  }
 }))
 
 vi.mock('./use-auto-speak-replies', () => ({ useAutoSpeakReplies: vi.fn() }))
@@ -65,7 +72,7 @@ vi.mock('@/store/voice-live', async () => {
   return {
     $voiceLiveStatus: atom(null),
     refreshVoiceLiveStatus: vi.fn(async () => undefined),
-    selectedVoiceChatMode: vi.fn(() => 'chained')
+    selectedVoiceChatMode: vi.fn(status => (status?.mode === 'gpt-live' ? 'gpt-live' : 'chained'))
   }
 })
 vi.mock('@/store/voice-prefs', async () => {
@@ -124,14 +131,46 @@ function renderComposers(children: ReactNode) {
 
 afterEach(() => {
   cleanup()
-  document.body.innerHTML = ''
+  globalThis.document.body.innerHTML = ''
   mocks.dictate.mockClear()
   mocks.endConversation.mockClear()
   mocks.conversationEnabled.length = 0
+  mocks.liveEnabled.length = 0
+  $voiceLiveStatus.set(null)
   markActiveComposer('main')
 })
 
 describe('composer voice shortcuts', () => {
+  it.each(['chained', 'gpt-live'] as const)(
+    'uses the embedded owner mode %s despite a different active profile',
+    mode => {
+      $voiceLiveStatus.set({
+        mode: mode === 'chained' ? 'gpt-live' : 'chained',
+        available: true,
+        reason: null,
+        model: 'active-model',
+        voice: 'active-voice'
+      })
+      renderComposers(
+        <ComposerScopeProvider
+          value={{
+            ...MAIN_COMPOSER_SCOPE,
+            target: 'embedded',
+            embedded: true,
+            connectionId: 'office',
+            profile: 'developer',
+            voiceStartToken: 'explicit-mic-click',
+            voiceLiveStatus: { mode, available: true, reason: null, model: 'owner-model', voice: 'owner-voice' }
+          }}
+        >
+          <Composer disabled={false} target="embedded" />
+        </ComposerScopeProvider>
+      )
+      expect(mocks.liveEnabled.at(-1)).toBe(mode === 'gpt-live')
+      expect(mocks.conversationEnabled.at(-1)).toBe(mode === 'chained')
+    }
+  )
+
   it('dictates only on the active visible target and ignores a disabled target', async () => {
     renderComposers(
       <>

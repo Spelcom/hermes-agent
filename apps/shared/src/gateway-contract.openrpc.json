@@ -7,6 +7,24 @@
   },
   "methods": [
     {
+      "name": "activity.tasks",
+      "summary": "Assigned nonarchived tasks, active claims first. active requires a matching running run and unexpired claim; assignment alone is not execution. Checklist counts are literal stored task-body checkboxes, never a percentage inferred from tools.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/ActivityTasksParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/ActivityTasksResult"
+        }
+      }
+    },
+    {
       "name": "activity.transfers",
       "summary": "Latest 100 actual settled Bot Chat receipts and available task files for this profile. Metadata only; availability does not assert worker delivery or reading. Seed IDs on first load.",
       "params": [
@@ -4943,6 +4961,269 @@
           "subagent_id"
         ],
         "title": "ActiveSubagent",
+        "type": "object"
+      },
+      "ActivityTask": {
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "assignee": {
+            "title": "Assignee",
+            "type": "string"
+          },
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "run_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Status"
+          },
+          "run_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Outcome"
+          },
+          "execution_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Session Id"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "last_event_id": {
+            "title": "Last Event Id",
+            "type": "integer"
+          },
+          "checklist": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivityTaskChecklist"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "task_id",
+          "title",
+          "status",
+          "assignee",
+          "active",
+          "run_id",
+          "run_status",
+          "run_outcome",
+          "execution_session_id",
+          "created_at",
+          "started_at",
+          "completed_at",
+          "updated_at",
+          "last_event_id",
+          "checklist"
+        ],
+        "title": "ActivityTask",
+        "type": "object"
+      },
+      "ActivityTaskChecklist": {
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "source": {
+            "const": "task_body",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "done",
+          "total",
+          "source"
+        ],
+        "title": "ActivityTaskChecklist",
+        "type": "object"
+      },
+      "ActivityTasksParams": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "board": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Board"
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "ActivityTasksParams",
+        "type": "object"
+      },
+      "ActivityTasksResult": {
+        "additionalProperties": false,
+        "properties": {
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "board": {
+            "title": "Board",
+            "type": "string"
+          },
+          "canonical_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Session Id"
+          },
+          "captured_at": {
+            "title": "Captured At",
+            "type": "number"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityTask"
+            },
+            "title": "Tasks",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "profile",
+          "board",
+          "canonical_session_id",
+          "captured_at",
+          "revision",
+          "tasks",
+          "truncated"
+        ],
+        "title": "ActivityTasksResult",
         "type": "object"
       },
       "ActivityTransfer": {

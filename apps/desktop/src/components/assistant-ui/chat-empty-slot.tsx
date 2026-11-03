@@ -1,6 +1,7 @@
 import type { FC } from 'react'
 import { useMemo } from 'react'
 
+import { useComposerScope } from '@/app/chat/composer/scope'
 import { useContributions } from '@/contrib'
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { CHAT_EMPTY_AREA, type ChatEmptyContribution } from '@/lib/chat-empty'
@@ -40,6 +41,13 @@ const ChatEmptyEntry: FC<{ id: string; render: ChatEmptyContribution['render']; 
 
 export const ChatEmptySlot: FC<{ sessionId: string }> = ({ sessionId }) => {
   const contributions = useContributions(CHAT_EMPTY_AREA)
+  const { embedded } = useComposerScope()
+
+  // The embedding plugin supplies its exact agent identity; legacy empty-state
+  // contributions can fall back to the foreground bot and must not paint here.
+  if (embedded) {
+    return null
+  }
 
   return (
     <>

@@ -108,6 +108,40 @@ async function kickoffTextSent(): Promise<string> {
 }
 
 describe('the lazy row is materialized before anything else touches it', () => {
+  it('materializes an embedded canonical chat without opening a workspace or sending an intro', async () => {
+    respondWith(method => {
+      events.push(method)
+
+      return method === 'session.create' ? { session_id: 'runtime-embedded', stored_session_id: 'stored-embedded' } : {}
+    })
+    const { resolveBotCanonicalSession } = await loadModule()
+    await expect(resolveBotCanonicalSession({ name: 'embedded' } as RosterRow)).resolves.toBe('stored-embedded')
+    expect(events).toEqual(['session.list', 'session.list', 'session.create', 'session.title'])
+    expect(hostMock.openSession).not.toHaveBeenCalled()
+  })
+
+  it('refuses an embedded creation on an older gateway without sending a persistence prompt', async () => {
+    respondWith(method => {
+      events.push(method)
+
+      if (method === 'session.create') {
+        return { session_id: 'old-runtime', stored_session_id: 'old-stored' }
+      }
+
+      if (method === 'session.title') {
+        throw new Error('unsupported rpc')
+      }
+
+      return {}
+    })
+    const { resolveBotCanonicalSession } = await loadModule()
+    await expect(resolveBotCanonicalSession({ name: 'old-embedded' } as RosterRow)).rejects.toThrow(
+      'without sending a prompt'
+    )
+    expect(events).not.toContain('prompt.submit')
+    expect(hostMock.openSession).not.toHaveBeenCalled()
+  })
+
   it('titles the created row, then opens it, and sends no intro', async () => {
     respondWith((method, params) => {
       events.push(method)

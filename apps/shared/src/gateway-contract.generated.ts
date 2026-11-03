@@ -26,6 +26,42 @@ export interface ActivityTransfer {
   content_type: string | null
   bytes: number | null
 }
+export interface ActivityTasksParams {
+  profile?: string | null
+  board?: string | null
+  limit?: number
+}
+export interface ActivityTasksResult {
+  profile: string
+  board: string
+  canonical_session_id: string | null
+  captured_at: number
+  revision: string
+  tasks: ActivityTask[]
+  truncated: boolean
+}
+export interface ActivityTask {
+  task_id: string
+  title: string
+  status: string
+  assignee: string
+  active: boolean
+  run_id: number | null
+  run_status: string | null
+  run_outcome: string | null
+  execution_session_id: string | null
+  created_at: number | null
+  started_at: number | null
+  completed_at: number | null
+  updated_at: number | null
+  last_event_id: number
+  checklist: ActivityTaskChecklist | null
+}
+export interface ActivityTaskChecklist {
+  done: number
+  total: number
+  source: 'task_body'
+}
 /** Any method the desktop may route to a named profile (``requestGatewayForProfile`` adds ``profile``). */
 export interface ProfileParams {
   profile?: string | null
@@ -6078,6 +6114,8 @@ export type ConnectorErrorReason = 'INVALID_PARAMS' | 'NOT_OWNER' | 'UNSUPPORTED
 
 // ── Client→server methods ──
 export interface RpcMethods {
+  /** Assigned nonarchived tasks, active claims first. active requires a matching running run and unexpired claim; assignment alone is not execution. Checklist counts are literal stored task-body checkboxes, never a percentage inferred from tools. */
+  'activity.tasks': { params: ActivityTasksParams; result: ActivityTasksResult }
   /** Latest 100 actual settled Bot Chat receipts and available task files for this profile. Metadata only; availability does not assert worker delivery or reading. Seed IDs on first load. */
   'activity.transfers': { params: ActivityTransfersParams; result: ActivityTransfersResult }
   /** Registry-wide background process summary for ``/agents``. */
@@ -6599,6 +6637,7 @@ export interface RpcMethods {
 }
 export type RpcMethod = keyof RpcMethods
 export const RPC_METHODS = [
+  'activity.tasks',
   'activity.transfers',
   'agents.list',
   'approval.pending',

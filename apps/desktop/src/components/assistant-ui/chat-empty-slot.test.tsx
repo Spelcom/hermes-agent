@@ -11,6 +11,7 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { ComposerScopeProvider, MAIN_COMPOSER_SCOPE } from '@/app/chat/composer/scope'
 import { registry } from '@/contrib'
 import { CHAT_EMPTY_AREA, type ChatEmptyContribution } from '@/lib/chat-empty'
 
@@ -29,6 +30,18 @@ afterEach(() => {
 })
 
 describe('an empty transcript asks every contributor', () => {
+  it('leaves an embedded agent identity to its owning plugin instead of a foreground fallback', () => {
+    contribute('foreground', () => <span>unrelated foreground bot</span>)
+
+    const { container } = render(
+      <ComposerScopeProvider value={{ ...MAIN_COMPOSER_SCOPE, embedded: true }}>
+        <ChatEmptySlot sessionId="embedded-session" />
+      </ComposerScopeProvider>
+    )
+
+    expect(container.textContent).toBe('')
+  })
+
   it('renders the owner even when an earlier contributor declined', () => {
     contribute('declines', () => null)
     contribute('owns', ({ sessionId }) => <span data-testid="owner">owner of {sessionId}</span>)

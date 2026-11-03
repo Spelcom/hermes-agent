@@ -10,11 +10,21 @@ import { claimFloatingComposer, pinFloatingComposerCapture } from './floating-ta
 import { getActiveComposer, markActiveComposer } from './focus'
 import { ComposerScopeProvider, ComposerSurfaceProvider, MAIN_COMPOSER_SCOPE } from './scope'
 
-function Surface({ id, visible = true, groupId = id }: { id: string; visible?: boolean; groupId?: string }) {
+function Surface({
+  id,
+  visible = true,
+  groupId = id,
+  embedded = false
+}: {
+  id: string
+  visible?: boolean
+  groupId?: string
+  embedded?: boolean
+}) {
   return (
     <PaneGroupContext value={groupId}>
       <PaneVisibleContext value={visible}>
-        <ComposerScopeProvider value={{ ...MAIN_COMPOSER_SCOPE, target: id }}>
+        <ComposerScopeProvider value={{ ...MAIN_COMPOSER_SCOPE, target: id, embedded }}>
           <ComposerSurfaceProvider value={id}>
             <div
               data-chat-surface=""
@@ -36,6 +46,14 @@ function Surface({ id, visible = true, groupId = id }: { id: string; visible?: b
 
 // Floating is opt-in (the dock lock is the default); these exercise the float.
 beforeEach(() => $composerPopoutGesturesEnabled.set(true))
+
+it('keeps an embedded plugin composer inside its bubble when the main composer is floating', () => {
+  render(<Surface embedded id="embedded" />)
+  act(() => setComposerPoppedOut(true))
+  const input = screen.getByLabelText('Draft embedded')
+  expect(input.closest('[data-chat-surface]')).toBe(screen.getByTestId('pane-embedded'))
+  expect(input.closest<HTMLElement>('[data-composer-owner]')!.style.display).toBe('contents')
+})
 
 afterEach(async () => {
   cleanup()

@@ -1,4 +1,4 @@
-import { type OwnerScope, ownerScoped, profileScoped } from '@/api/client'
+import { hermesApiAs, type OwnerScope, ownerScoped, profileScoped, type ResolvedOwner } from '@/api/client'
 import { hermesApi } from '@/hermes'
 
 /**
@@ -78,12 +78,13 @@ const APPEND_CHAR_LIMIT = 1_400
 const CONTEXT_WINDOW_MS = 5 * 60_000
 const CONTEXT_MAX_FRAGMENTS = 80
 
-export async function fetchVoiceLiveStatus(): Promise<null | VoiceLiveStatus> {
+export async function fetchVoiceLiveStatus(owner?: ResolvedOwner): Promise<null | VoiceLiveStatus> {
   try {
-    const response = await hermesApi<{ ok: boolean } & VoiceLiveStatus>({
-      ...profileScoped(),
-      path: '/api/audio/voice-live/status'
-    })
+    const request = { path: '/api/audio/voice-live/status' }
+
+    const response = owner
+      ? await hermesApiAs<{ ok: boolean } & VoiceLiveStatus>(owner, request)
+      : await hermesApi<{ ok: boolean } & VoiceLiveStatus>({ ...profileScoped(), ...request })
 
     if (!response?.ok) {
       return null

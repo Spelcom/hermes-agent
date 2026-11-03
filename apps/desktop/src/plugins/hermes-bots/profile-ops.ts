@@ -39,9 +39,26 @@ import type { BotMeta, RosterRow } from './types'
 
 const avatarFetchInflight = new Set<string>()
 const avatarPushInflight = new Set<string>()
-// Rows whose server avatar is only the plugin's own face raster: nothing to
-// paint, so the roster must not re-fetch it on every tick.
-const avatarFaceOnly = new Set<string>()
+const AVATAR_READ_TTL_MS = 45_000
+const avatarReadCache = new Map<string, { at: number; localImage: null | string }>()
+
+function localAvatarImage(key: string): null | string {
+  const image = $botMeta.get()[key]?.image
+
+  return typeof image === 'string' && image.startsWith('data:') ? image : null
+}
+
+function avatarReadIsFresh(key: string): boolean {
+  const cached = avatarReadCache.get(key)
+
+  return Boolean(cached && Date.now() - cached.at < AVATAR_READ_TTL_MS && cached.localImage === localAvatarImage(key))
+}
+
+function markAvatarRead(bot: RosterRow): void {
+  const key = botMetaKey(bot)
+
+  avatarReadCache.set(key, { at: Date.now(), localImage: localAvatarImage(key) })
+}
 
 /** Asset RPC for a row of the ACTIVE source's roster (#102978, #99336, #102913). These rows
  *  came back from the active gateway's own `profiles.list`, which reads every
@@ -66,7 +83,7 @@ function pushLocalAvatars(roster: RosterRow[]) {
     const key = botMetaKey(bot)
 
     // A sparse/older row cannot establish that a server asset is absent.
-    if (bot.has_avatar !== false || avatarPushInflight.has(key)) {
+    if (bot.has_avatar !== false || avatarPushInflight.has(key) || avatarReadIsFresh(key)) {
       continue
     }
 
@@ -101,6 +118,8 @@ async function backfillLocalAvatar(bot: RosterRow, image: null | string, svg: El
     return
   }
 
+  markAvatarRead(bot)
+
   const data = image || (svg ? await rasterizeSvgToPng(svg, 160) : null)
 
   if (!data) {
@@ -108,6 +127,7 @@ async function backfillLocalAvatar(bot: RosterRow, image: null | string, svg: El
   }
 
   await requestAssetOnActiveSource(bot, 'profiles.set_asset', { asset: 'avatar', data })
+  markAvatarRead(bot)
   await queryClient.invalidateQueries({ queryKey: ['hermes-bots', 'roster'] })
 }
 
@@ -156,6 +176,12 @@ interface ProfilesGetAssetResult {
 
 /** Shared native cache rules for a roster read or one exact owner's explicit chat open. */
 export function rememberServerAvatar(bot: RosterRow, res: ProfilesGetAssetResult): void {
+  if (res?.found === false) {
+    markAvatarRead(bot)
+
+    return
+  }
+
   if (!res?.found || !res.data) {
     return
   }
@@ -164,30 +190,33 @@ export function rememberServerAvatar(bot: RosterRow, res: ProfilesGetAssetResult
   const current = $botMeta.get()
   const mine = current[key] || {}
 
-  // Face rasters are transport thumbnails; caching them would stop the native face animating.
-  if (isBackfilledFacePng(res.data) && mine.imageKind !== 'photo' && !mine.pet) {
-    avatarFaceOnly.add(key)
+  // Explicit local pets are user-selected; keep them ahead of synced profile art.
+  if (mine.pet) {
+    markAvatarRead(bot)
 
     return
   }
 
-  $botMeta.set({ ...current, [key]: { ...mine, image: res.data } })
+  // Face rasters are transport thumbnails; caching them would stop the native face animating.
+  if (isBackfilledFacePng(res.data) && mine.imageKind !== 'photo' && !mine.pet) {
+    markAvatarRead(bot)
+
+    return
+  }
+
+  $botMeta.set({ ...current, [key]: { ...mine, image: res.data, imageKind: 'photo' } })
   persistBotMetaSnapshot($botMeta.get(), Boolean(bot.sourceScoped))
+  markAvatarRead(bot)
 }
 
-/** Fetch server-side avatars for roster rows flagged has_avatar when the
- *  local cache doesn't already have an image for them. Fire-and-forget. */
+/** Refresh cached roster art from the active source, including sparse rows. */
 export function pullServerAvatars(roster: RosterRow[]) {
   pushLocalAvatars(roster)
 
   for (const bot of roster) {
     const key = botMetaKey(bot)
 
-    if (!bot.has_avatar || avatarFetchInflight.has(key) || avatarFaceOnly.has(key)) {
-      continue
-    }
-
-    if ($botMeta.get()[key]?.image) {
+    if (avatarFetchInflight.has(key) || avatarPushInflight.has(key) || avatarReadIsFresh(key)) {
       continue
     }
 
@@ -199,7 +228,11 @@ export function pullServerAvatars(roster: RosterRow[]) {
     })
 
     assetRequest
-      .then(res => rememberServerAvatar(bot, res))
+      .then(res => {
+        if (res?.found === true || res?.found === false) {
+          rememberServerAvatar(bot, res)
+        }
+      })
       .catch(() => undefined)
       .finally(() => avatarFetchInflight.delete(key))
   }
@@ -466,7 +499,7 @@ export async function deleteBot(bot: RosterRow) {
   forgetSessionUnread([bot.canonical_session?.id, bot.canonical_session?.resolved_id], bot.name)
   rosterWatermarks.delete(botSelectionKey(bot))
   avatarFetchInflight.delete(botMetaKey(bot))
-  avatarFaceOnly.delete(botMetaKey(bot))
+  avatarReadCache.delete(botMetaKey(bot))
   avatarPushInflight.delete(botMetaKey(bot))
 
   if ($selectedBot.get() === botSelectionKey(bot)) {

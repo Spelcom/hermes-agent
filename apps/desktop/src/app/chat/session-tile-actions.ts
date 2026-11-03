@@ -195,6 +195,10 @@ export function useSessionTileActions({ requestGateway, runtimeId, scope, stored
   // active gateway has moved to a same-named profile on another source.
   const requestSessionGateway = useCallback(
     <T>(method: string, params?: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal) => {
+      if (scope.embedded) {
+        return requestGateway<T>(method, params ?? {}, timeoutMs, signal)
+      }
+
       const knownOwner: SessionOwnerScope =
         sessionTileOwnerRoute(storedIdRef.current) ?? knownSessionOwner(ownerLookupSessionRows(), storedIdRef.current)
 
@@ -205,26 +209,31 @@ export function useSessionTileActions({ requestGateway, runtimeId, scope, stored
 
       return requestForSessionProfile<T>(owner, requestGateway, method, params ?? {}, timeoutMs, signal)
     },
-    [requestGateway]
+    [requestGateway, scope.embedded]
   )
 
   // A ⌘T tab's session is unlisted until its first turn persists — seed the
   // row from the user's first message so the tab and sidebar name it right
   // away (see listTileSessionRow).
-  const listTileSession = useCallback((preview: string) => {
-    const runtimeId = runtimeIdRef.current
-    const state = $sessionStates.get()[runtimeId]
+  const listTileSession = useCallback(
+    (preview: string) => {
+      const runtimeId = runtimeIdRef.current
+      const state = $sessionStates.get()[runtimeId]
 
-    listTileSessionRow({
-      cwd: state?.cwd,
-      model: state?.model,
-      preview,
-      runtimeId,
-      sessions: $sessions.get(),
-      storedSessionId: storedIdRef.current,
-      workspaceMode: $sessionTiles.get().find(tile => tile.storedSessionId === storedIdRef.current)?.workspaceMode
-    })
-  }, [])
+      listTileSessionRow({
+        cwd: state?.cwd,
+        model: state?.model,
+        preview,
+        runtimeId,
+        sessions: $sessions.get(),
+        storedSessionId: storedIdRef.current,
+        workspaceMode: scope.embedded
+          ? 'bots'
+          : $sessionTiles.get().find(tile => tile.storedSessionId === storedIdRef.current)?.workspaceMode
+      })
+    },
+    [scope.embedded]
+  )
 
   // Tile-side attachment staging: same upload rules as the primary submit
   // (skip synced/pathless, byte-upload files+images), against the tile scope.
@@ -352,7 +361,13 @@ export function useSessionTileActions({ requestGateway, runtimeId, scope, stored
 
       return await submitPromptText(rawText, options)
     },
-    [listTileSession, scope.attachments.$attachments, submitPromptText]
+    [
+      copy.slashCommandIgnoredBody,
+      copy.slashCommandIgnoredTitle,
+      listTileSession,
+      scope.attachments.$attachments,
+      submitPromptText
+    ]
   )
 
   const cancelRun = useCallback(async () => {

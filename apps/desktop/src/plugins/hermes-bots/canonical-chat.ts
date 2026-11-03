@@ -342,7 +342,15 @@ async function findExistingCanonicalChat(owner: RosterRow | string): Promise<Can
 
 interface CreateCanonicalChatOptions {
   kickoff?: boolean
+  /** Resolve/materialize identity for an embedded surface without navigating. */
+  open?: boolean
   openingStillCurrent?: (() => boolean) | null
+}
+
+function requireEmbeddedPersistence(open: boolean, titled: boolean): void {
+  if (!open && !titled) {
+    throw new Error('This gateway cannot persist an embedded Bot Chat without sending a prompt')
+  }
 }
 
 interface OpenCanonicalChatOptions {
@@ -407,7 +415,7 @@ function kickoffText(): string {
  *  rail in a bot chat until the next click re-opened it scoped. */
 export function createCanonicalChat(
   owner: RosterRow | string,
-  { kickoff = false, openingStillCurrent = null }: CreateCanonicalChatOptions = {}
+  { kickoff = false, open = true, openingStillCurrent = null }: CreateCanonicalChatOptions = {}
 ): Promise<null | string> {
   const { bot, name, key, route } = botOwner(owner)
   const inflight = canonicalCreations.get(key)
@@ -431,7 +439,7 @@ export function createCanonicalChat(
     })
 
   if (inflight) {
-    if (!openingStillCurrent) {
+    if (!openingStillCurrent || !open) {
       return inflight.run!
     }
 
@@ -448,7 +456,7 @@ export function createCanonicalChat(
     run: null
   }
 
-  const canNavigate = () => !openingStillCurrent || openingStillCurrent()
+  const canNavigate = () => open && (!openingStillCurrent || openingStillCurrent())
 
   const run = (async () => {
     const existing = await findExistingCanonicalChat(owner)
@@ -537,6 +545,8 @@ export function createCanonicalChat(
       }
     }
 
+    requireEmbeddedPersistence(open, titled)
+
     // Mount the session view FIRST, then send the kickoff — submitting into
     // an unmounted session left the intro reply invisible until reopen.
     let opened = false
@@ -597,6 +607,23 @@ export function createCanonicalChat(
   canonicalCreations.set(key, flight)
 
   return run
+}
+
+/** The same exact-title registry for embedded native chats; never fronts a workspace. */
+export async function resolveBotCanonicalSession(owner: RosterRow): Promise<string> {
+  const existing = await findExistingCanonicalChat(owner)
+
+  if (existing?.id) {
+    return String(existing.resolved_id || existing.id)
+  }
+
+  const created = await createCanonicalChat(owner, { open: false })
+
+  if (!created) {
+    throw new Error('Could not resolve the agent Bot Chat')
+  }
+
+  return created
 }
 
 /** Open the bot's ONE forever chat and return the opened registry id.

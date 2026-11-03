@@ -414,11 +414,11 @@ describe('free-tier Sign in in every interface mode', () => {
     setInterfaceMode('advanced')
   })
 
-  it.each(INTERFACE_MODES)('shows the Sign in chip to a signed-out free-tier user in %s mode', mode => {
+  it.each(INTERFACE_MODES)('omits the Nous promotion in the personal distribution in %s mode', mode => {
     setInterfaceMode(mode)
     $freeTierStatus.set(freeTier(true))
 
-    expect(signInChipVisible()).toBe(true)
+    expect(signInChipVisible()).toBe(false)
   })
 
   it('lets Simple rest the bar again once the user has signed in', () => {
@@ -436,6 +436,6 @@ describe('free-tier Sign in in every interface mode', () => {
     expect(signInChipVisible()).toBe(false)
 
     setOnboardingSurfaceActive('onboarding', false)
-    expect(signInChipVisible()).toBe(true)
+    expect(signInChipVisible()).toBe(false)
   })
 })

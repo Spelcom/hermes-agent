@@ -16,7 +16,7 @@
 
 import { useStore } from '@nanostores/react'
 import { useQueryClient } from '@tanstack/react-query'
-import { atom, computed } from 'nanostores'
+import { atom, computed, type ReadableAtom } from 'nanostores'
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 
 import { useGatewayRequest } from '@/app/gateway/hooks/use-gateway-request'
@@ -41,6 +41,7 @@ import { useI18n } from '@/i18n'
 import type { ChatMessage } from '@/lib/chat-messages'
 import { NEW_SESSION_TITLE, sessionTitle } from '@/lib/chat-runtime'
 import { transcribeAudioClientDirect } from '@/lib/voice-client-direct'
+import type { VoiceLiveStatus } from '@/lib/voice-live'
 import { createComposerAttachmentScope, draftTitleFor, takeSessionDraft } from '@/store/composer'
 import { $gatewaySwitching } from '@/store/gateway-switch'
 import { $pinnedSessionIds, pinSession, unpinSession } from '@/store/layout'
@@ -60,6 +61,7 @@ import {
 } from '@/store/session'
 import { isSessionRemovalPending } from '@/store/session-removal'
 import { requestForSessionProfile } from '@/store/session-request-router'
+import type { SessionOwnerRoute } from '@/store/session-request-router'
 import {
   $botChatScopes,
   $sessionStates,
@@ -188,11 +190,10 @@ export function shouldResumeSessionTile(opts: {
 
 /** The tile's SessionView: the same atom shape the primary chat renders
  *  from, computed from this session's slice of `$sessionStates`. */
-function buildTileView(storedSessionId: string): SessionView {
-  const $runtimeId = computed(
-    $sessionTiles,
-    tiles => tiles.find(t => t.storedSessionId === storedSessionId)?.runtimeId ?? null
-  )
+export function buildTileView(storedSessionId: string, runtime?: ReadableAtom<string | null>): SessionView {
+  const $runtimeId =
+    runtime ??
+    computed($sessionTiles, tiles => tiles.find(t => t.storedSessionId === storedSessionId)?.runtimeId ?? null)
 
   const $state = computed([$runtimeId, $sessionStates], (runtimeId, states) =>
     runtimeId ? states[runtimeId] : undefined
@@ -241,14 +242,24 @@ const tileTranscribeAudio = async (audio: Blob, owner?: ResolvedOwner) => {
   return (await transcribeAudio(await blobToDataUrl(audio), audio.type, owner)).transcript
 }
 
-function TileChat({
+export function TileChat({
   runtimeId,
   storedSessionId,
-  view
+  view,
+  ownerRoute: pinnedOwner,
+  embedded,
+  voiceStartToken,
+  voiceLiveStatus,
+  composerTarget
 }: {
   runtimeId: string
   storedSessionId: string
   view: SessionView
+  ownerRoute?: SessionOwnerRoute
+  embedded?: boolean
+  voiceStartToken?: string | number
+  voiceLiveStatus?: VoiceLiveStatus | null
+  composerTarget?: string
 }) {
   const { gateway, requestGateway } = useGatewayRequest()
   const queryClient = useQueryClient()
@@ -265,8 +276,8 @@ function TileChat({
   const ownerRoute = useMemo(() => {
     const rows = cronRows.length || messagingRows.length ? [...sessionRows, ...cronRows, ...messagingRows] : sessionRows
 
-    return tileOwnerRoute(tiles, rows, storedSessionId)
-  }, [cronRows, messagingRows, sessionRows, storedSessionId, tiles])
+    return pinnedOwner ?? tileOwnerRoute(tiles, rows, storedSessionId)
+  }, [cronRows, messagingRows, pinnedOwner, sessionRows, storedSessionId, tiles])
 
   const requestTileGateway = useCallback(
     <T,>(method: string, params?: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal): Promise<T> =>
@@ -293,12 +304,21 @@ function TileChat({
       $awaitingInput: sessionAwaitingInput(runtimeId),
       $messages: view.$messages,
       attachments,
+      embedded,
+      voiceStartToken,
+      voiceLiveStatus,
+      requestGateway: requestTileGateway,
       connectionId: ownerRoute?.connectionId || undefined,
       profile: ownerRoute?.targetProfile || ownerRoute?.profile || undefined,
-      target: `tile:${storedSessionId}`
+      target: composerTarget ?? `tile:${storedSessionId}`
     }),
     [
       attachments,
+      composerTarget,
+      embedded,
+      voiceStartToken,
+      voiceLiveStatus,
+      requestTileGateway,
       ownerRoute?.connectionId,
       ownerRoute?.profile,
       ownerRoute?.targetProfile,
@@ -408,7 +428,7 @@ function TileChat({
           onAttachDroppedItems={composer.attachDroppedItems}
           onAttachImageBlob={composer.attachImageBlob}
           onAttachPastedText={composer.attachPastedText}
-          onBranchInNewChat={actions.branchInNewChat}
+          onBranchInNewChat={embedded ? undefined : actions.branchInNewChat}
           onCancel={actions.cancelRun}
           onDeleteSelectedSession={noop}
           onDismissError={actions.dismissError}

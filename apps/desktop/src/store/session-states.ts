@@ -2203,7 +2203,7 @@ export interface SessionTileDelegate {
    *  `authoritativeSnapshot` forces a message-bearing gateway resume. */
   resumeTile(
     storedSessionId: string,
-    options?: { authoritativeSnapshot?: boolean; refreshTranscript?: boolean }
+    options?: { authoritativeSnapshot?: boolean; refreshTranscript?: boolean; ownerRoute?: SessionProfileRoute }
   ): Promise<string>
   /** Retire one runtime's busy/awaiting claim through the wiring cache
    *  (updateSessionState), so cache, focused view, busyRef, and tile mirrors

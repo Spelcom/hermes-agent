@@ -35,7 +35,6 @@ import {
 import { FloatingPet } from '@/components/pet/floating-pet'
 import { RemoteDisplayBanner } from '@/components/remote-display-banner'
 import { SendDiagnosticsHost } from '@/components/send-diagnostics-dialog'
-import { SharedMetricsConsentDialog } from '@/components/shared-metrics/consent-dialog'
 import { TipHost } from '@/components/tips'
 import { UpdateHoldOverlay } from '@/components/update-hold-overlay'
 import { emitGatewayEvent } from '@/contrib/events'
@@ -93,7 +92,6 @@ import {
   setBusy,
   setMessages
 } from '@/store/session'
-import { reportPendingUpdateRun } from '@/store/shared-metrics'
 import { $archivedSessions } from '@/store/sidebar-archive'
 import { $titlebarAppActionsSide, titlebarAppActionsClusterCounts } from '@/store/titlebar-app-actions'
 import { armWakeWord, stopClientCapture } from '@/store/wake-word'
@@ -168,7 +166,6 @@ import {
   useBackgroundSync
 } from './hooks/use-background-sync'
 import { useDesktopIntegrations } from './hooks/use-desktop-integrations'
-import { useDesktopMetrics } from './hooks/use-desktop-metrics'
 import { usePetBridge } from './hooks/use-pet-bridge'
 import { useQuickEntryBridge } from './hooks/use-quick-entry-bridge'
 import { useSessionTileDelegate } from './hooks/use-session-tile-delegate'
@@ -875,23 +872,7 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     }
   }, [gatewayState, requestGateway])
 
-  useEffect(() => {
-    if (gatewayState !== 'open' || isAuxiliaryWindow()) {
-      return
-    }
-
-    const report = () => void reportPendingUpdateRun(requestGateway)
-    report()
-
-    return window.hermesDesktop?.updates?.onPendingRun?.(report)
-  }, [gatewayState, requestGateway])
-
-  useDesktopMetrics({
-    enabled: !isAuxiliaryWindow(),
-    gatewayOpen: gatewayState === 'open',
-    pathname: location.pathname,
-    profile: activeGatewayProfile
-  })
+  // Personal distribution: no automatic usage collection, upload reports or consent offer.
 
   const activeIsMessaging =
     !!selectedStoredSessionId &&
@@ -1300,13 +1281,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
         />
       )}
       {!isAuxiliaryWindow() && <OnboardingEnd />}
-      {!isAuxiliaryWindow() && (
-        <SharedMetricsConsentDialog
-          enabled={gatewayState === 'open'}
-          profile={activeGatewayProfile}
-          requestGateway={requestGateway}
-        />
-      )}
       {/* One host for every free-tier sign-in entry point (Settings › Billing,
           the statusbar chip, the first-launch intro). It owns the flow; the
           entry points only record the intent. */}

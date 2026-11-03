@@ -32,24 +32,27 @@ export function FloatingComposerSurface({ children }: ComposerSurfaceProps) {
     return element
   })
 
-  const { target } = useComposerScope()
+  const { embedded, target } = useComposerScope()
   const paneVisible = usePaneVisible()
   const enabled = useStore($composerPopoutGesturesEnabled)
-  const floating = useStoreSelector($composerPopout, state => state.poppedOut) && enabled && !isSecondaryWindow()
+
+  const floating =
+    useStoreSelector($composerPopout, state => state.poppedOut) && enabled && !isSecondaryWindow() && !embedded
+
   const selected = useStoreSelector($floatingComposerOwner, owner => owner?.id === id)
   const visible = paneVisible && (!floating || selected)
 
   useLayoutEffect(() => {
     const surface = anchorRef.current?.closest<HTMLElement>('[data-chat-surface]')
 
-    if (!surface || !paneVisible) {
+    if (!surface || !paneVisible || embedded) {
       return undefined
     }
 
     return registerFloatingComposer(id, { groupId, target })
     // Re-register when Fast Refresh replaces the module-local recipient registry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId, id, paneVisible, registerFloatingComposer, target])
+  }, [embedded, groupId, id, paneVisible, registerFloatingComposer, target])
 
   useLayoutEffect(() => {
     host.dataset.composerOwner = id

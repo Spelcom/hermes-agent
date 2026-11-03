@@ -159,12 +159,53 @@ describe('duplicating a bot', () => {
  * RPCs are the same reads, addressed by the row's backend name.
  */
 describe('roster avatar sync (#102978)', () => {
-  it('never backfills a sparse row whose avatar presence is unknown', async () => {
+  it('reads sparse rows with unknown presence but never backfills them', async () => {
     const { pullServerAvatars } = await import('./profile-ops')
-    $botMeta.set({ 'local::unknown-avatar': { image: 'data:image/png;base64,c3RhbGU=' } })
-    pullServerAvatars([{ name: 'unknown-avatar', connectionId: 'local', sourceScoped: true } as RosterRow])
+    hostMock.request.mockResolvedValue({ found: false })
+    $botMeta.set({ 'local::unknown-avatar-readonly': { image: 'data:image/png;base64,c3RhbGU=' } })
+    const row = { name: 'unknown-avatar-readonly', connectionId: 'local', sourceScoped: true } as RosterRow
+    pullServerAvatars([row])
+    await vi.waitFor(() => expect(hostMock.request).toHaveBeenCalledTimes(1))
+    pullServerAvatars([row])
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect(hostMock.request).not.toHaveBeenCalled()
+    expect(hostMock.request.mock.calls.map(([method]) => method)).toEqual(['profiles.get_asset'])
+    expect($botMeta.get()['local::unknown-avatar-readonly']?.image).toBe('data:image/png;base64,c3RhbGU=')
+  })
+
+  it('replaces stale cached art with the authoritative avatar for an unknown row', async () => {
+    const { pullServerAvatars } = await import('./profile-ops')
+    const serverImage = 'data:image/png;base64,c2VydmVy'
+    hostMock.request.mockResolvedValue({ found: true, data: serverImage })
+    $botMeta.set({ 'local::stale-unknown-avatar': { image: 'data:image/png;base64,c3RhbGU=', imageKind: 'shape' } })
+    pullServerAvatars([{ name: 'stale-unknown-avatar', connectionId: 'local', sourceScoped: true } as RosterRow])
+    await vi.waitFor(() => expect($botMeta.get()['local::stale-unknown-avatar']?.image).toBe(serverImage))
+    expect($botMeta.get()['local::stale-unknown-avatar']).toMatchObject({ imageKind: 'photo' })
+    expect(hostMock.request.mock.calls.map(([method]) => method)).toEqual(['profiles.get_asset'])
+  })
+
+  it('does not replace a user-selected pet when the source has an avatar', async () => {
+    const { pullServerAvatars } = await import('./profile-ops')
+    hostMock.request.mockResolvedValue({ found: true, data: 'data:image/png;base64,c2VydmVy' })
+    const localImage = 'data:image/png;base64,cGV0'
+    $botMeta.set({ 'local::pet-avatar': { image: localImage, imageKind: 'photo', pet: 'pet-cat' } })
+    pullServerAvatars([{ name: 'pet-avatar', connectionId: 'local', sourceScoped: true } as RosterRow])
+    await vi.waitFor(() => expect(hostMock.request).toHaveBeenCalledTimes(1))
+    expect($botMeta.get()['local::pet-avatar']).toMatchObject({ image: localImage, pet: 'pet-cat' })
+  })
+
+  it('retries a failed read and caches successful missing-asset reads briefly', async () => {
+    const { pullServerAvatars } = await import('./profile-ops')
+    const row = { name: 'retry-unknown-avatar', connectionId: 'local', sourceScoped: true } as RosterRow
+    hostMock.request.mockRejectedValueOnce(new Error('offline'))
+    pullServerAvatars([row])
+    await new Promise(resolve => setTimeout(resolve, 0))
+    hostMock.request.mockResolvedValue({ found: false })
+    pullServerAvatars([row])
+    await vi.waitFor(() => expect(hostMock.request).toHaveBeenCalledTimes(2))
+    pullServerAvatars([row])
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(hostMock.request).toHaveBeenCalledTimes(2)
+    expect(hostMock.request.mock.calls.map(([method]) => method)).toEqual(['profiles.get_asset', 'profiles.get_asset'])
   })
 
   it('prefers an existing server avatar over stale local art even with a missing-avatar hint', async () => {
@@ -289,5 +330,42 @@ describe('roster avatar sync (#102978)', () => {
     expect(hostMock.request).toHaveBeenCalledTimes(1)
     // The raster is a notice-only copy of the live face, never parked on the roster.
     expect($botMeta.get()['local::secretary']?.image).toBeUndefined()
+  })
+
+  it('rechecks an expired face-only raster and accepts real source art', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { pullServerAvatars } = await import('./profile-ops')
+      faceOnlyMock.mockReturnValue(true)
+      hostMock.request.mockResolvedValue({ found: true, data: 'data:image/png;base64,ZmFjZQ==' })
+
+      const row = {
+        connectionId: 'local',
+        has_avatar: true,
+        name: 'face-expiry-avatar',
+        route: {
+          connectionId: 'local',
+          mode: 'local',
+          profile: 'face-expiry-avatar',
+          targetProfile: 'face-expiry-avatar'
+        },
+        sourceScoped: true
+      } as RosterRow
+
+      pullServerAvatars([row])
+      await vi.waitFor(() => expect(hostMock.request).toHaveBeenCalledTimes(1))
+      hostMock.request.mockResolvedValue({ found: true, data: 'data:image/png;base64,cGhvdG8=' })
+      faceOnlyMock.mockReturnValue(false)
+      await vi.advanceTimersByTimeAsync(45_001)
+      pullServerAvatars([row])
+      await vi.waitFor(() => expect(hostMock.request).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() =>
+        expect($botMeta.get()['local::face-expiry-avatar']?.image).toBe('data:image/png;base64,cGhvdG8=')
+      )
+      expect($botMeta.get()['local::face-expiry-avatar']?.imageKind).toBe('photo')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

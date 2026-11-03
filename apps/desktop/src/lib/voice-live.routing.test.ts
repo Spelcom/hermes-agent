@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { setApiRequestConnection, setApiRequestProfile } from '@/hermes'
 
-import { type VoiceLiveHandlers, VoiceLiveSession } from './voice-live'
+import { fetchVoiceLiveStatus, type VoiceLiveHandlers, VoiceLiveSession } from './voice-live'
 
 // A GPT-Live session is created on the chat OWNER's (connection, profile) —
 // the Bot that owns the chat — never on the window's active scope, mirroring
@@ -59,6 +59,19 @@ afterEach(() => {
 })
 
 describe('GPT-Live owner routing', () => {
+  it('probes the embedded chat owner instead of the active profile before selecting its voice engine', async () => {
+    const api = installApi()
+    setApiRequestConnection('wrong-source')
+    setApiRequestProfile('wrong-profile')
+    await fetchVoiceLiveStatus({ connectionId: 'office', profile: 'developer' })
+    expect(api).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: 'office',
+        profile: 'developer',
+        path: '/api/audio/voice-live/status'
+      })
+    )
+  })
   it('creates the session on the chat owner (connection, profile) ahead of the active scope', async () => {
     installWebRTC()
     const api = installApi()

@@ -1659,6 +1659,28 @@ ctx.socket('/events', () => {
 
 ## The UI kit and theming
 
+`AgentConversation` embeds the native canonical agent chat inside a plugin's own
+container, without changing the page or active profile. It renders native Markdown,
+code, artifact links, attachments and the text/voice composer. Pass an exact
+`PluginProfileRoute` from `host.profileRoutes()`; missing connection/profile fields
+are rejected. The server's exact-title `Bot Chat` registry remains the identity.
+
+```tsx
+<AgentConversation
+  route={capturedRoute}
+  voiceStartToken={explicitMicrophoneClickToken}
+  className="h-full min-h-0 flex-1"
+/>
+```
+
+Omit `voiceStartToken` for text chat. Set a new string or number only from an
+explicit microphone click; rerenders with the same token do not restart voice.
+Unmounting or replacing the owner closes its microphone and voice engine. The
+caller supplies the floating bubble and close button; optional `title` and
+`onClose` add a native header. The composer stays inside the container even when
+the main chat's floating composer is enabled. The owner's configured chained or
+available live voice engine is used; this component never supplies credentials.
+
 Import the app's real components directly so your UI is native by default:
 
 > `Button`, `Input`, `Textarea`, `Select*`, `Switch`, `Checkbox`,

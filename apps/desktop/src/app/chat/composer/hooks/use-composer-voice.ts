@@ -30,6 +30,7 @@ import { useComposerScope, useComposerSurfaceId } from '../scope'
 import type { ChatBarProps } from '../types'
 
 import { useAutoSpeakReplies } from './use-auto-speak-replies'
+import { useEmbeddedVoiceStart } from './use-embedded-voice-start'
 import { useVoiceConversation } from './use-voice-conversation'
 import { useVoiceLiveConversation } from './use-voice-live-conversation'
 import { useVoiceRecorder } from './use-voice-recorder'
@@ -73,7 +74,7 @@ export function useComposerVoice({
 }: UseComposerVoiceArgs) {
   const { t } = useI18n()
   // A tile's composer speaks ITS transcript, not the primary chat's.
-  const { $messages } = useComposerScope()
+  const { $messages, embedded, voiceLiveStatus, voiceStartToken } = useComposerScope()
 
   // Wake the voice loop once when a pending reply first becomes speakable,
   // without re-rendering the composer for every streamed token. The live
@@ -259,7 +260,7 @@ export function useComposerVoice({
    *  `enabled`. gpt-live selected but not startable (no OpenAI key on the
    *  gateway) falls back to chained with a notice rather than a dead button. */
   const activateConversation = useCallback(() => {
-    const status = $voiceLiveStatus.get()
+    const status = voiceLiveStatus === undefined ? $voiceLiveStatus.get() : voiceLiveStatus
     let live = false
 
     if (selectedVoiceChatMode(status) === 'gpt-live') {
@@ -277,14 +278,23 @@ export function useComposerVoice({
     setLiveEngineActive(live)
     setVoiceConversationActive(true)
     recordFeatureUse('voice_conversation')
-  }, [t])
+  }, [t, voiceLiveStatus])
+
+  useEmbeddedVoiceStart({
+    active: voiceConversationActive,
+    activate: activateConversation,
+    disabled,
+    embedded,
+    end: conversation.end,
+    token: voiceStartToken
+  })
 
   useEffect(() => {
-    if (!voiceConversationActive) {
+    if (!voiceConversationActive && !embedded) {
       // Prefetch so the first press picks the right engine without a round trip.
       void refreshVoiceLiveStatus().catch(() => undefined)
     }
-  }, [voiceConversationActive])
+  }, [embedded, voiceConversationActive])
 
   // eslint-disable-next-line no-restricted-syntax -- ownership token used only by unmount cleanup
   useEffect(() => {
@@ -408,10 +418,19 @@ export function useComposerVoice({
   // lease, and the backend unloads resident local models once no surface holds
   // one. Fire-and-forget — the toggle never waits on or fails from this.
   useEffect(() => {
-    void syncTtsLease(CONVERSATION_LEASE, voiceConversationActive && !liveEngineActive)
-  }, [liveEngineActive, voiceConversationActive])
+    if (!embedded) {
+      void syncTtsLease(CONVERSATION_LEASE, voiceConversationActive && !liveEngineActive)
+    }
+  }, [embedded, liveEngineActive, voiceConversationActive])
 
-  useEffect(() => () => void syncTtsLease(CONVERSATION_LEASE, false), [])
+  useEffect(
+    () => () => {
+      if (!embedded) {
+        void syncTtsLease(CONVERSATION_LEASE, false)
+      }
+    },
+    [embedded]
+  )
 
   // "Read replies aloud" is the same signal, held for as long as the toggle is
   // on (it mirrors voice.auto_tts, so this also warms at startup when the
@@ -419,8 +438,10 @@ export function useComposerVoice({
   const autoSpeakReplies = useStore($autoSpeakReplies)
 
   useEffect(() => {
-    void syncTtsLease(READ_ALOUD_LEASE, autoSpeakReplies)
-  }, [autoSpeakReplies])
+    if (!embedded) {
+      void syncTtsLease(READ_ALOUD_LEASE, autoSpeakReplies)
+    }
+  }, [autoSpeakReplies, embedded])
 
   // Explicit start/end for the on-screen conversation controls (the hotkey uses
   // the gated toggle above).

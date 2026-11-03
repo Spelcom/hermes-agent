@@ -1,7 +1,9 @@
 import type { ReadableAtom } from 'nanostores'
 import { createContext, useContext } from 'react'
 
+import type { GatewayRequester } from '@/app/contrib/types'
 import type { ChatMessage } from '@/lib/chat-messages'
+import type { VoiceLiveStatus } from '@/lib/voice-live'
 import { type ComposerAttachmentScope, mainComposerScope } from '@/store/composer'
 import { $activeSessionAwaitingInput } from '@/store/prompts'
 import { $messages } from '@/store/session'
@@ -36,6 +38,13 @@ export interface ComposerScope {
   profile?: null | string
   /** Focus-bus routing key (`'main'` | `'tile:<id>'`). */
   target: ComposerTarget
+  /** A plugin-hosted native surface stays docked inside its own container. */
+  embedded?: boolean
+  /** Fresh token supplied only by an explicit user voice-start gesture. */
+  voiceStartToken?: string | number
+  /** An embedded owner's probed voice mode; null means use chained voice. */
+  voiceLiveStatus?: VoiceLiveStatus | null
+  requestGateway?: GatewayRequester
 }
 
 export const MAIN_COMPOSER_SCOPE: ComposerScope = {
